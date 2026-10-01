@@ -1,0 +1,6 @@
+node_modules/
+lib/
+dsh-eda-bridge-extension.zip
+bridge-test.err
+*.log
+.DS_Store

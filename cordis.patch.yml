@@ -1,0 +1,7 @@
+# dsh-eda-mcp bundle patch: inserts the host+browser plugin row into the
+# web profile roster. The Host half starts the local JLCEDA MCP bridge child
+# and serves the settings card + extension-zip route; the browser half renders
+# the settings card.
+- insert:
+    - id: eda-mcp
+      name: 'dsh-eda-mcp'

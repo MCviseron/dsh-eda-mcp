@@ -1,0 +1,191 @@
+# dsh-eda-mcp
+
+[![check](https://github.com/MCviseron/dsh-eda-mcp/actions/workflows/check.yml/badge.svg)](https://github.com/MCviseron/dsh-eda-mcp/actions/workflows/check.yml)
+[![license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![node](https://img.shields.io/badge/node-%5E22.19%20%7C%7C%20%3E%3D24-brightgreen.svg)](package.json)
+
+DeepSeek Harness (DSH) plugin that connects DSH to **嘉立创EDA专业版 / EasyEDA Pro** and lets the agent draw schematics through MCP tools.
+
+> 中文文档：[README.zh.md](README.zh.md) · Tool reference: [docs/tools.md](docs/tools.md) · Changes: [CHANGELOG.md](CHANGELOG.md)
+
+## How it works
+
+```
+DSH agent
+  └─ mcp__jlceda__eda_* tools
+       └─ @deepseek-ai/dsh-mcp-client (stdio)
+            └─ lib/bridge.mjs  (local MCP + WebSocket server, 127.0.0.1:39009)
+                 └─ JLCEDA Pro extension  dsh-eda-bridge-extension.zip
+                      └─ official EasyEDA Pro extension API (eda.sch_*)
+```
+
+The DSH plugin starts a zero-dependency bridge child process. The bridge speaks MCP over stdio to DSH and WebSocket to a small JLCEDA Pro extension. The extension executes a strict allow-list of official EDA APIs, so the model cannot run arbitrary code inside JLCEDA.
+
+## Install
+
+> Runtime requirement: DSH `0.1.1-rc.x`, `0.1.5-rc.x` or `0.2.0-rc.x` (Web GUI and the official Desktop). The host settings seam and the browser bundle are adapted to every generation, so one build loads on any of them.
+
+### 1. Install into the DSH web profile
+
+```sh
+# directly from GitHub (pnpm runs the package's `prepare` build)
+dsh plugin --profile web add "github:MCviseron/dsh-eda-mcp"
+
+# or from a local clone, so every `pnpm build` is picked up by a profile restart
+git clone https://github.com/MCviseron/dsh-eda-mcp.git
+cd dsh-eda-mcp && pnpm install && dsh plugin --profile web add "link:$PWD"
+```
+
+`dsh plugin` forwards to pnpm and reconciles `dsh.profile.bundles` automatically. Restart the running DSH Web profile after installation.
+
+### 1b. Running inside the official Desktop app
+
+The Desktop app hosts plugins in **Electron**, so there `process.execPath` is `DeepSeek Harness.exe`, not Node: spawning it with `lib/bridge.mjs` starts (or single-instance-aborts) a second app instead of a bridge, and port 39009 never listens — the settings card exists, `/test` always fails and the agent gets no `mcp__jlceda__*` tools.
+
+The plugin now resolves a real Node executable (`src/node-runtime.ts`), in order: `DSH_EDA_MCP_NODE` override → `DSH_NODE_EXECUTABLE` / `DSH_DESKTOP_NODE_EXECUTABLE` (with `ELECTRON_RUN_AS_NODE=1`) → `process.execPath` on a Node host → the Desktop payload's own `resources/runtime/primary-runtime/dependencies/node/bin/node.exe` → `node` on `PATH` → Electron-as-Node.
+
+`POST /api/dsh-eda-mcp/test` reports which one it picked:
+
+```json
+{"ok":true,"health":{"status":"ok","version":"0.3.5","clients":1},
+ "launch":{"command":"…\\runtime\\primary-runtime\\dependencies\\node\\bin\\node.exe","source":"desktop runtime Node"}}
+```
+
+> The Desktop loads the packaged `lib/index.js`, and a plugin reload does **not** re-import a cached ESM module — after changing `src/`, run `node build.mjs` and restart the Desktop app.
+
+### 2. Import the JLCEDA Pro bridge extension
+
+Build produces `dsh-eda-bridge-extension.zip`. In JLCEDA Pro:
+
+1. Open **扩展 → 导入** (Extensions → Import).
+2. Select `dsh-eda-bridge-extension.zip`.
+3. In the extension list find **DSH EDA MCP Bridge**.
+4. Enable it and, importantly, enable **允许外部交互 / Allow external interactions**.
+
+The extension connects to `ws://127.0.0.1:39009/ws`. Keep JLCEDA Pro running and a schematic page open.
+
+### 3. Verify
+
+In the DSH Web GUI settings page, the **嘉立创EDA MCP** card has a **测试连接** button. It checks the local bridge health endpoint. The MCP tools appear as `mcp__jlceda__eda_status`, `mcp__jlceda__eda_place_component`, `mcp__jlceda__eda_draw_wire`, etc.
+
+## MCP tools (schematic-first MVP)
+
+| Tool | Purpose |
+|---|---|
+| `eda_status` | Bridge status and connected JLCEDA clients |
+| `eda_search_components` | Search JLCEDA library devices |
+| `eda_place_component` | Place a component/symbol |
+| `eda_place_net_flag` | Place VCC/GND/Power net flag |
+| `eda_place_net_port` | Place IN/OUT/BI net port |
+| `eda_draw_wire` | Draw a wire/polyline |
+| `eda_draw_rectangle` | Draw a rectangle |
+| `eda_draw_circle` | Draw a circle |
+| `eda_draw_text` | Draw text |
+| `eda_save_document` | Save the active schematic |
+| `eda_zoom_to_fit` / `eda_zoom_to_region` | Zoom canvas |
+| `eda_get_components` / `eda_get_wires` | Inspect primitives |
+| `eda_delete_primitive` | Delete one primitive |
+| `eda_api_call` | Allow-listed generic API call (can be disabled in settings) |
+| `pcb_*` / `eda_pcb_*` (65 tools total) | PCB query, place/move/delete components, tracks, vias, regions, board outline, auto-place/auto-route, Gerber export |
+
+Schematic/symbol coordinates are in **0.01 inch** units; PCB coordinates are in **mil**. Rotation values are `0/90/180/270`. Wire points are a flat array `[x1, y1, x2, y2, ...]`.
+
+Every PCB tool has an equivalent `eda_pcb_*` alias (`eda_pcb_get_components` = `pcb_get_components`). See `README.zh.md` for the full PCB table and the region-layer rules (`pcb_PrimitiveRegion.create` accepts copper layers and MULTI only, so the board outline stays a closed line loop on layer 11).
+
+## Tool reference
+
+`docs/tools.md` is generated from the built bridge's MCP `tools/list` (81 tools) and is the authoritative list of names, parameters and required fields.
+
+## Workflows
+
+### A. Schematic (make connections real)
+
+1. `eda_get_page_info` for the A4 frame, title-block keep-out and safe areas; then `eda_search_components` + `eda_place_component` (out-of-frame placement is rejected and rolled back).
+2. Connect with `eda_draw_wire` **net** parameter (same-name nets merge) - the most reliable electrical connection. `eda_place_net_flag_at_pin` places power/ground flags. `eda_place_net_label_at_pin` prefers a REAL net label and reports `method: "netLabel"`; when it reports `method: "text"` the EDA build has no `createNetLabel` and the text label does **not** create an electrical connection - fall back to the wire net parameter.
+3. `eda_set_no_connect` for unused pins, `eda_draw_functional_box` to group, then `eda_run_drc` + `eda_save_document`.
+
+### B. Schematic -> PCB sync (EDA shows its own confirmation dialog)
+
+1. `eda_create_board` links schematic and PCB (first time only).
+2. `pcb_import_changes` is **asynchronous by default**: `pcb_Document.importChanges` opens EDA's confirmation dialog and blocks until it is answered, so the tool returns immediately with `componentsBefore` and keeps the import running in the background.
+3. Ask the user to click OK, then call `eda_pcb_wait_for_components`: it polls every 5 s by default (**minimum 3 s**, deliberately low) for up to 45 s (`pollIntervalMs` / `maxWaitMs`). Confirmation is detected as "new PCB components appeared that did not exist before".
+4. On `confirmed: true` run `pcb_save_document`; on `confirmed: false` ask the user and call again.
+
+### C. PCB layout and routing (long jobs are always polled)
+
+1. Outline: `pcb_draw_board_outline` (one closed `pcb_PrimitivePolyline` on layer 11).
+2. Placement: `eda_pcb_get_components` (`includePins: true` for accurate pad nets) + `eda_pcb_move_component`; `eda_pcb_auto_place` (blocking by default, `wait: false` for a background job).
+3. Routing: `eda_pcb_auto_route` **starts asynchronously** (EDA shows its own progress bar); poll `eda_pcb_job_status` until `running=false`. Never await it and never raise timeouts - a whole board or a 35+ pin net such as GND always exceeds any sane timeout while EDA keeps working. Use `eda_pcb_clear_routing` to start over.
+4. Check: `eda_pcb_run_drc` (`strict` includes warnings, `includeVerboseError` returns details) + `eda_pcb_get_drc_rules`.
+5. Finish: `eda_pcb_set_net_track_width` for power/GND, `eda_pcb_create_pour` for copper pours (`45grid`/`90grid`/`solid`, copper layers only), `eda_pcb_export_gerber` (base64 data URL, can be several MB).
+
+### D. Active-document rule
+
+`sch_Net.*`, netlist export and the schematic get/getAll APIs only act on the **active tab**: with a PCB in front they return `[]` / `null`. `eda_get_nets` therefore degrades through `getCurrentProjectAllNets -> getAllNets -> parsing sch_Netlist.getNetlist` and reports `source`; when it is empty use `eda_get_active_document` and `eda_open_document` to bring the schematic page forward.
+## Configuration
+
+The Web GUI settings card exposes:
+
+- `enabled` — mount/unmount the MCP bridge.
+- `announceToAgent` — inject plugin guidance into the system prompt.
+- `toolCallTimeoutMs` — per-call EDA timeout.
+- `allowRawApi` — expose the generic `eda_api_call` tool.
+
+The WebSocket port is fixed at `39009` in the first version. Do not run another service on that port.
+
+## Development
+
+Requirements: Node `^22.19.0 || >=24`, pnpm (pinned by `packageManager`), and Windows for the extension zip (PowerShell `Compress-Archive`).
+
+```sh
+pnpm install
+pnpm typecheck   # tsc --noEmit
+pnpm test        # unit tests
+pnpm build       # bundles + extension zip
+pnpm check       # all three
+```
+
+Build outputs:
+
+- `lib/index.js` — DSH host plugin.
+- `lib/client.js` — DSH Web GUI settings card.
+- `lib/bridge.mjs` — standalone MCP/WebSocket bridge child.
+- `dsh-eda-bridge-extension.zip` — JLCEDA Pro extension.
+
+`lib/` and the zip are build outputs and are git-ignored; the host loads the packaged `lib/index.js`, so a change under `src/` needs `pnpm build` plus a Host restart (a plugin reload does not re-import a cached ESM module).
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the repository layout, the release/tag flow, and the bridge/extension version rule.
+
+## Security
+
+- The bridge listens on loopback only (`127.0.0.1`).
+- The JLCEDA extension and the bridge both enforce the same API allow-list.
+- Generic `eda_api_call` is allow-list-only and can be disabled.
+- No raw JavaScript evaluation is exposed.
+
+## Known limitations
+
+- The board outline is one `pcb_PrimitivePolyline` on layer 11 (polygon source + line width). It cannot be created with `pcb_PrimitiveLine` (a copper-track primitive; the core rejects layer 11) nor with `pcb_PrimitiveRegion` (`TPCB_LayersOfRegion` allows copper layers and MULTI(12) only). Verified against real `.eprj2` project files, where an outline is stored as `["POLY", id, 0, "", 11, 10, [...], 1]`.
+- `pcb_Document.autoRouting` returns `success=false, duration=0` for every net when no net list is passed (empty `routingRange` in this EDA build), so `eda_pcb_auto_route` enumerates all net names first.
+- Auto-routing is asynchronous by default: `eda_pcb_auto_route` returns as soon as EDA starts routing (EDA shows its own progress bar) and `eda_pcb_job_status` is polled until `running=false`. Awaiting a whole-board or many-pin net (e.g. GND) always exceeds any sane timeout while EDA keeps working.
+- Schematic APIs (`sch_Net.*`, netlist export) only act on the ACTIVE document; when they return empty/null, use `eda_get_active_document` and `eda_open_document` to bring the schematic page to the front.
+- `eda_pcb_export_gerber` returns the Gerber zip as a base64 data URL, which can be several MB for a large board.
+- The JLCEDA extension socket is registered through `sys_WebSocket`, which has neither a close callback nor auto-reconnect; versions before 0.3.3 therefore had to be reconnected by hand after the DSH bridge child restarted. 0.3.3 adds a 10 s heartbeat that re-registers the socket when `pong` stops arriving.
+- Screenshot/canvas image return is not yet wired into MCP image blocks.
+- Changing the bridge WebSocket port requires editing both the bridge env and `jlc-extension/api-bridge.js`, then rebuilding/reimporting the extension zip.
+
+## Repository
+
+| Path | What it is |
+|---|---|
+| `src/index.ts`, `src/routes.ts`, `src/node-runtime.ts`, `src/config-values.ts`, `src/bridge-diagnostics.ts`, `src/guidance.ts` | DSH host half |
+| `src/bridge/index.ts` | Standalone MCP/WebSocket bridge child |
+| `src/client/` | Web settings card |
+| `jlc-extension/` | JLCEDA Pro extension packaged into the zip |
+| `test/` | Unit tests |
+| `docs/tools.md` | Generated tool reference (every MCP tool, its parameters, and required fields) |
+| `build.mjs` | esbuild bundles + extension zip |
+
+## License
+
+Apache-2.0 © dsh-eda-mcp contributors. See [LICENSE](LICENSE).

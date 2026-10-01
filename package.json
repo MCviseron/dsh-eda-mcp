@@ -1,0 +1,134 @@
+{
+  "name": "dsh-eda-mcp",
+  "version": "0.5.1",
+  "description": "DeepSeek Harness (DSH) plugin — connects DSH to JLCEDA Pro (EasyEDA Pro) via a local MCP bridge and draws schematics through the JLCEDA extension API.",
+  "license": "Apache-2.0",
+  "author": {
+    "name": "DSH-EDA-MCP contributors"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MCviseron/dsh-eda-mcp.git"
+  },
+  "homepage": "https://github.com/MCviseron/dsh-eda-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/MCviseron/dsh-eda-mcp/issues"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "plugin",
+    "mcp",
+    "eda",
+    "jlc",
+    "jlceda",
+    "easyeda",
+    "schematic"
+  ],
+  "packageManager": "pnpm@10.6.3",
+  "engines": {
+    "node": "^22.19.0 || >=24"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./bridge": "./lib/bridge.mjs",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "src",
+    "test",
+    "jlc-extension",
+    "dsh-eda-bridge-extension.zip",
+    "cordis.patch.yml",
+    "README.md",
+    "README.zh.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-locale"
+      ],
+      "platform": "web"
+    }
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types test/node-runtime.test.ts && node --experimental-strip-types test/config-values.test.ts",
+    "check": "pnpm typecheck && pnpm test && pnpm build",
+    "prepare": "pnpm build"
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh-mcp-client": "^0.1.5-rc.2",
+    "@deepseek-ai/dsh-settings": "^0.1.5-rc.2",
+    "@deepseek-ai/dsh-system-prompt": "^0.1.5-rc.2",
+    "@deepseek-ai/dsh-host-webserver": "^0.1.5-rc.2",
+    "@deepseek-ai/schemastery": "^3.18.4"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-client-connection": "^0.1.1-rc.2 || ^0.1.5-rc.2 || ^0.2.0-rc.2",
+    "@deepseek-ai/dsh-client-locale": "^0.1.1-rc.2 || ^0.1.5-rc.2 || ^0.2.0-rc.2",
+    "@deepseek-ai/dsh-client-ui-settings": "^0.1.1-rc.2 || ^0.1.5-rc.2 || ^0.2.0-rc.2",
+    "@deepseek-ai/dsh-client-ui-slots": "^0.1.1-rc.2 || ^0.1.5-rc.2 || ^0.2.0-rc.2",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/cordis": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-connection": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-locale": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-ui-settings": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-ui-slots": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    },
+    "react-dom": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.0",
+    "@types/react": "~18.3.1",
+    "@types/react-dom": "^18.3.5",
+    "esbuild": "^0.24.0",
+    "immer": "10.2.0",
+    "zustand": "4.4.7",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "typescript": "~5.7.2",
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/dsh-client-connection": "^0.1.5-rc.2",
+    "@deepseek-ai/dsh-client-locale": "^0.1.5-rc.2",
+    "@deepseek-ai/dsh-client-store": "^0.1.5-rc.2",
+    "@deepseek-ai/dsh-client-ui-renderer": "^0.1.5-rc.2",
+    "@deepseek-ai/dsh-client-ui-settings": "^0.1.5-rc.2",
+    "@deepseek-ai/dsh-client-ui-slots": "^0.1.5-rc.2",
+    "@deepseek-ai/dsh-host-webserver": "^0.1.5-rc.2",
+    "@deepseek-ai/dsh-settings": "^0.1.5-rc.2",
+    "@deepseek-ai/dsh-system-prompt": "^0.1.5-rc.2"
+  }
+}

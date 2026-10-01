@@ -1,0 +1,104 @@
+{
+  "uuid": "d5e0a1b2c3f4456789abcdef01234567",
+  "name": "dsh-eda-bridge",
+  "displayName": "DSH EDA MCP Bridge",
+  "version": "0.3.5",
+  "description": "Local WebSocket bridge used by the dsh-eda-mcp plugin to let DeepSeek Harness draw schematics and drive PCB operations in JLCEDA Pro through the official extension API.",
+  "entry": "./api-bridge.js",
+  "publisher": "dsh-eda-mcp",
+  "engines": {
+    "eda": "^3.0.0"
+  },
+  "categories": "Other",
+  "keywords": [
+    "eda",
+    "mcp",
+    "jlceda",
+    "easyeda",
+    "schematic",
+    "pcb",
+    "automation"
+  ],
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/dsh-eda-mcp",
+  "bugs": "https://github.com/dsh-eda-mcp/issues",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dsh-eda-mcp/dsh-eda-mcp"
+  },
+  "activationEvents": {
+    "onStartupFinished": true
+  },
+  "dependentExtensions": {},
+  "headerMenus": {
+    "home": [
+      {
+        "id": "dsh-eda-mcp",
+        "title": "DSH MCP",
+        "menuItems": [
+          {
+            "id": "connect",
+            "title": "连接 DSH MCP 服务器",
+            "registerFn": "dshEdaMcpConnect"
+          },
+          {
+            "id": "disconnect",
+            "title": "断开 DSH MCP 连接",
+            "registerFn": "dshEdaMcpDisconnect"
+          },
+          {
+            "id": "status",
+            "title": "查看 DSH MCP 连接状态",
+            "registerFn": "dshEdaMcpStatus"
+          }
+        ]
+      }
+    ],
+    "sch": [
+      {
+        "id": "dsh-eda-mcp",
+        "title": "DSH MCP",
+        "menuItems": [
+          {
+            "id": "connect",
+            "title": "连接 DSH MCP 服务器",
+            "registerFn": "dshEdaMcpConnect"
+          },
+          {
+            "id": "disconnect",
+            "title": "断开 DSH MCP 连接",
+            "registerFn": "dshEdaMcpDisconnect"
+          },
+          {
+            "id": "status",
+            "title": "查看 DSH MCP 连接状态",
+            "registerFn": "dshEdaMcpStatus"
+          }
+        ]
+      }
+    ],
+    "pcb": [
+      {
+        "id": "dsh-eda-mcp",
+        "title": "DSH MCP",
+        "menuItems": [
+          {
+            "id": "connect",
+            "title": "连接 DSH MCP 服务器",
+            "registerFn": "dshEdaMcpConnect"
+          },
+          {
+            "id": "disconnect",
+            "title": "断开 DSH MCP 连接",
+            "registerFn": "dshEdaMcpDisconnect"
+          },
+          {
+            "id": "status",
+            "title": "查看 DSH MCP 连接状态",
+            "registerFn": "dshEdaMcpStatus"
+          }
+        ]
+      }
+    ]
+  }
+}

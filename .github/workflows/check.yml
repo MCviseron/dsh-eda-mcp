@@ -1,0 +1,42 @@
+name: check
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  check:
+    # build.mjs packages the JLCEDA extension with PowerShell Compress-Archive,
+    # so the job runs on Windows.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Enable pnpm (from packageManager)
+        run: corepack enable
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Unit tests
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      - name: Upload the EDA bridge extension
+        uses: actions/upload-artifact@v4
+        with:
+          name: dsh-eda-bridge-extension
+          path: dsh-eda-bridge-extension.zip
+          if-no-files-found: error
