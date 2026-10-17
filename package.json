@@ -72,25 +72,26 @@
   "scripts": {
     "build": "node build.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types test/node-runtime.test.ts && node --experimental-strip-types test/config-values.test.ts && node --experimental-strip-types test/design-rules.test.ts",
+    "test": "node --experimental-strip-types test/node-runtime.test.ts && node --experimental-strip-types test/config-values.test.ts && node --experimental-strip-types test/design-rules.test.ts && node --experimental-strip-types test/seams.test.ts",
+    "seam-check": "node scripts/seam-check.mjs",
     "check": "pnpm typecheck && pnpm test && pnpm build",
     "docs": "node scripts/gen-tools-doc.mjs",
     "prepublishOnly": "pnpm check",
     "prepare": "pnpm build"
   },
   "dependencies": {
-    "@deepseek-ai/dsh-mcp-client": "^0.1.5-rc.2",
-    "@deepseek-ai/dsh-settings": "^0.1.5-rc.2",
-    "@deepseek-ai/dsh-system-prompt": "^0.1.5-rc.2",
-    "@deepseek-ai/dsh-host-webserver": "^0.1.5-rc.2",
+    "@deepseek-ai/dsh-mcp-client": "^0.1.5-rc.2 || ^0.2.0-rc.2 || ^0.2.1-rc.2",
+    "@deepseek-ai/dsh-settings": "^0.1.5-rc.2 || ^0.2.0-rc.2 || ^0.2.1-rc.2",
+    "@deepseek-ai/dsh-system-prompt": "^0.1.5-rc.2 || ^0.2.0-rc.2 || ^0.2.1-rc.2",
+    "@deepseek-ai/dsh-host-webserver": "^0.1.5-rc.2 || ^0.2.0-rc.2 || ^0.2.1-rc.2",
     "@deepseek-ai/schemastery": "^3.18.4"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
-    "@deepseek-ai/dsh-client-connection": "^0.1.1-rc.2 || ^0.1.5-rc.2 || ^0.2.0-rc.2",
-    "@deepseek-ai/dsh-client-locale": "^0.1.1-rc.2 || ^0.1.5-rc.2 || ^0.2.0-rc.2",
-    "@deepseek-ai/dsh-client-ui-settings": "^0.1.1-rc.2 || ^0.1.5-rc.2 || ^0.2.0-rc.2",
-    "@deepseek-ai/dsh-client-ui-slots": "^0.1.1-rc.2 || ^0.1.5-rc.2 || ^0.2.0-rc.2",
+    "@deepseek-ai/dsh-client-connection": "^0.1.1-rc.2 || ^0.1.5-rc.2 || ^0.2.0-rc.2 || ^0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-locale": "^0.1.1-rc.2 || ^0.1.5-rc.2 || ^0.2.0-rc.2 || ^0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-settings": "^0.1.1-rc.2 || ^0.1.5-rc.2 || ^0.2.0-rc.2 || ^0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-slots": "^0.1.1-rc.2 || ^0.1.5-rc.2 || ^0.2.0-rc.2 || ^0.2.1-rc.2",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },

@@ -32,10 +32,27 @@ packaged with PowerShell `Compress-Archive`.
 ```sh
 pnpm install
 pnpm typecheck   # tsc --noEmit
-pnpm test        # unit tests, run through node --experimental-strip-types
+pnpm test        # unit tests + the seam compatibility test
 pnpm build       # lib/*.js, lib/bridge.mjs, lib/client.js, dsh-eda-bridge-extension.zip
 pnpm check       # all three, in that order
+pnpm docs        # regenerate docs/tools.md from the built bridge
+pnpm seam-check  # assert the plugin's DSH contracts against another version line
 ```
+
+`pnpm seam-check` defaults to the registry's `latest`; pass a dist-tag or a version
+to check a specific one:
+
+```sh
+pnpm seam-check next            # e.g. 0.2.1-rc.2
+pnpm seam-check 0.2.0-rc.2
+```
+
+It installs that generation's seam packages into a throwaway directory and runs
+`test/seams.test.ts` against them, so it never touches this repo's `node_modules`.
+When a new DSH line appears, run it first; only widen the ranges in `package.json`
+once it passes. Note the semver trap: `^0.2.0-rc.2` does **not** cover `0.2.1-rc.x`
+(a prerelease only matches a comparator with the same major.minor.patch), so each
+new `0.2.x` prerelease line needs its own entry.
 
 Install the working copy into a DSH profile as a link, so every rebuild is picked
 up by a profile restart:

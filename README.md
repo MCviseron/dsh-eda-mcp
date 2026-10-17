@@ -23,7 +23,9 @@ The DSH plugin starts a zero-dependency bridge child process. The bridge speaks 
 
 ## Install
 
-> Runtime requirement: DSH `0.1.1-rc.x`, `0.1.5-rc.x` or `0.2.0-rc.x` (Web GUI and the official Desktop). The host settings seam and the browser bundle are adapted to every generation, so one build loads on any of them.
+> Runtime requirement: DSH `0.1.1-rc.x`, `0.1.5-rc.x`, `0.2.0-rc.x` or `0.2.1-rc.x` (Web GUI and the official Desktop). The host settings seam and the browser bundle are adapted to every generation, so one build loads on any of them.
+>
+> Verified generations: `0.1.5-rc.2` (this repo's dev set) and `0.2.0-rc.2` / `0.2.1-rc.2` (desktop runtime and npm `next`). Re-check any new line with `pnpm seam-check next` — it installs that generation's seam packages into a throwaway directory and asserts every contract this plugin probes: mcp-client `inject: ['tools']` and its config keys, the settings faces, `systemPrompt.section({ name, order, text })`, `webServer.register({ kind: 'exact' })`, and the `window.__ModuleLoader__.load({ id, factory })` wrapper.
 
 ### 1. Install into the DSH web profile
 

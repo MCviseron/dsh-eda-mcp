@@ -33,6 +33,30 @@
 - `publish.yml` 增加 `Is this version already on the registry?` 步骤：版本已存在时跳过 `npm publish`，
   因此**手动发布之后再推 tag 也不会让 CI 变红**（会打印「already published」并正常结束）。
 
+### 跨版本兼容：适配 DSH `0.2.1-rc.x`，并把接缝校验固化成脚本
+
+- **版本事实（2026-10-17 实测）**：npm 上 `@deepseek-ai/dsh` 的 `latest` = `0.2.0-rc.2`（= 桌面端内置运行时），
+  `next` = **`0.2.1-rc.2`**（0.2.1-alpha.2→rc.2 一整条线）。本机全局 CLI 为 `0.1.5-rc.2`。
+- **0.2.0-rc.2 → 0.2.1-rc.2 的接缝差异（逐个包比对，不是推测）**：
+
+  | 包 | 体积变化 | 结论 |
+  |---|---|---|
+  | `dsh-mcp-client` | 35041 → 35041（0%） | 字节一致：`inject: ["tools"]`、`serverName`/`command`/`args`/`env`/`cwd`/`toolCallTimeoutMs`/`failOnStartupError`/`reconnect`、`already in use` 守卫全未变 |
+  | `dsh-settings` | 22636 → 22636（0%） | 字节一致：`configure` / `installSection` / `register` 三张面孔与 `isVolatile`/`plainConfig` 未变 |
+  | `dsh-system-prompt` | 17395 → 19817（+13.9%） | `section({ name, order, text })` 单对象签名未变 |
+  | `dsh-host-webserver` | 13284 → 21436（+61.4%） | `register(route)` 与 `route.kind === "exact"` 逐行相同（增长在 IP 校验等安全部分） |
+  | `dsh-client-ui-slots` / `dsh-client-locale` | 23461 / 64372（0%） | 字节一致：`slots.inject/register`、`locale.register/bind` 未变 |
+  | `dsh-client-ui-settings` | 60010 → 58624（−2.3%） | 有变化，但**本插件的设置卡片不使用它的运行时 API**（卡片用结构化的 `SettingsScope` 走自己的回环路由），因此无影响 |
+
+  另外核对：`dsh-tools` 仍是 `super(ctx, "tools")`（服务名不变）、`dsh-plugin-manager` 仍读 `bundle?.patch`
+  （`cordis.patch.yml` 插入机制不变）、`window.__ModuleLoader__.load({ id, factory })` 包装格式在 0.2.1 的客户端产物里逐字相同。
+- **因此 0.2.1-rc.x 无需改任何代码**，只需把版本区间补上：`dependencies` 与 `peerDependencies` 现在都是
+  `^0.1.5-rc.2 || ^0.2.0-rc.2 || ^0.2.1-rc.2`（注意 semver 的预发布规则：`^0.2.0-rc.2` **不覆盖** `0.2.1-rc.x`，
+  比较器元组必须落在同一 major.minor.patch 上）。
+- **新增 `test/seams.test.ts` + `scripts/seam-check.mjs`**：把上述每一条契约写成断言，可对任意代际运行 ——
+  `pnpm seam-check next` 会把该代际的 7 个接缝包装进临时目录再跑断言，输出每个契约的 PASS/FAIL 与实际版本号。
+  实测：`0.1.5-rc.2`（本地）**ALL PASS**、`0.2.1-rc.2`（npm `next`）**ALL PASS**；`pnpm test` 现在包含这套接缝测试。
+
 ## 0.6.0
 
 ### 设计规范落地：可量化部分改为工具强制，另加只读审计
