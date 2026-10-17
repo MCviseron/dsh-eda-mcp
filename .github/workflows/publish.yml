@@ -1,0 +1,87 @@
+name: publish
+
+# Publishes the package to the public npm registry when a `v*` tag is pushed.
+#
+# Authentication uses npm **trusted publishing** (OIDC): the job requests an ID
+# token, and npm exchanges it for a short-lived publish credential. No
+# NPM_TOKEN secret exists in this repository — and it must stay that way:
+# setting NODE_AUTH_TOKEN would make npm send a bearer token instead of doing
+# the OIDC exchange, which fails.
+#
+# One-time setup on npmjs.com (after the first manual publish): package →
+# Settings → Trusted Publisher → GitHub Actions:
+#   Organization or user : MCviseron
+#   Repository           : dsh-eda-mcp
+#   Workflow filename    : publish.yml
+#   Environment          : (leave empty)
+#   ✔ Allow npm publish   ✔ Allow npm dist-tag
+#
+# workflow_dispatch only packs (`npm pack --dry-run`) unless `publish` is ticked.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Really publish to npm (otherwise the run only packs)'
+        type: boolean
+        default: false
+
+jobs:
+  publish:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+      id-token: write # required for OIDC trusted publishing
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Enable pnpm (version comes from packageManager)
+        run: corepack enable
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify the tag matches package.json
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $version = node -p "require('./package.json').version"
+          $tag = '${{ github.ref_name }}'
+          Write-Host "package.json $version / tag $tag"
+          if ($tag -ne "v$version") {
+            Write-Host "::error::Tag $tag does not match package.json version $version"
+            exit 1
+          }
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Unit tests
+        run: pnpm test
+
+      - name: Build bundles
+        run: pnpm build
+
+      - name: Guard - no build-machine paths in the bundles
+        shell: pwsh
+        run: |
+          $hits = Select-String -Path lib/index.js, lib/bridge.mjs, lib/client.js -Pattern 'node_modules/' -AllMatches
+          if ($hits) {
+            $hits | ForEach-Object { Write-Host $_.Line }
+            Write-Host "::error::Bundles contain build-machine module paths; the build is not reproducible."
+            exit 1
+          }
+
+      - name: Pack (dry run)
+        if: github.event_name == 'workflow_dispatch' && inputs.publish == false
+        run: npm pack --dry-run
+
+      - name: Publish
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.publish == true
+        run: npm publish --provenance --access public

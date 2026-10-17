@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.6.1
+
+### 发布准备：npm 包元数据、CI 自动发布与可复现构建
+
+尚未发布到 npm（账号侧暂不可用）；仓库侧准备工作已全部完成，恢复后按
+[`docs/release.md`](docs/release.md) 走一遍即可。
+
+- `package.json`
+  - `publishConfig.registry` 写死 `https://registry.npmjs.org` —— 本机默认 registry 常是国内只读镜像，
+    之前这一项会让 `npm publish` 直接 403；
+  - `files` 增加 `docs`、`CHANGELOG.md`、`CONTRIBUTING.md`、`LICENSE`：README 里链到
+    `docs/design-rules.md` / `docs/tools.md`，npm 页面同样可读；
+  - 新增 `prepublishOnly: pnpm check`（发布前必定跑 typecheck + 单测 + build）。
+- **可复现构建**：esbuild 会把 `// node_modules/.pnpm/<pkg>_<peer-hash>/…` 这类注释写进 bundle，
+  其中的 peer 哈希随机器/pnpm 布局变化 → 同源码在不同机器上字节不同。`build.mjs` 现在构建后剥离这些注释
+  （本次 451 B），并把 `node_modules/` 残留检查作为构建输出的一部分。
+- 新增 `.github/workflows/publish.yml`：推 `v*` tag 时校验 tag 与 `package.json` 版本一致 →
+  `pnpm check` → `npm publish --provenance`，走 **npm trusted publishing（OIDC）**，仓库里没有任何 npm token；
+  `workflow_dispatch` 默认只 `npm pack --dry-run`。工作流带两个守卫：bundle 里不得含构建机路径、tag/版本必须一致。
+- 新增 [`docs/release.md`](docs/release.md)：首次手动发布、**staged publishing（`0.0.0-stage` 占位版）** 的识别与批准
+  （`npx npm@12 stage list/approve`）、trusted publisher 配置表、npmmirror 同步、版本约定（插件版本 vs 线协议版本对）、
+  失败模式速查，以及「账号不可用期间不要打 tag」的操作约定。
+- `npm pack --dry-run` 实测：**33 文件 / 162.5 kB**（解压 560.6 kB），含 `lib/index.js`、`lib/client.js`、
+  `lib/bridge.mjs`、`dsh-eda-bridge-extension.zip`、`cordis.patch.yml`、`docs/`；包名 `dsh-eda-mcp`
+  在官方与国内 registry 均未被占用。
+- 依赖可解析性已核对：`@deepseek-ai/dsh-mcp-client`、`dsh-settings`、`dsh-system-prompt`、
+  `dsh-host-webserver`（均含 `0.1.5-rc.2`）与 `@deepseek-ai/schemastery`（3.18.x）都在公共 registry 上。
+
 ## 0.6.0
 
 ### 设计规范落地：可量化部分改为工具强制，另加只读审计

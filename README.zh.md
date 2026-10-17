@@ -338,7 +338,7 @@ pnpm check       # 以上三步
 - `lib/bridge.mjs` — 独立 MCP/WebSocket 桥接子进程。
 - `dsh-eda-bridge-extension.zip` — 嘉立创EDA专业版扩展。
 
-`lib/` 与 zip 都是构建产物（已 gitignore）；宿主加载的是打包后的 `lib/index.js`，所以改 `src/` 后必须 `pnpm build` **并重启 Host**（插件重载不会重新 import 已缓存的 ESM 模块）。仓库结构、发布打 tag 流程、bridge/扩展版本规则见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+`lib/` 与 zip 都是构建产物（已 gitignore）；宿主加载的是打包后的 `lib/index.js`，所以改 `src/` 后必须 `pnpm build` **并重启 Host**（插件重载不会重新 import 已缓存的 ESM 模块）。仓库结构、发布打 tag 流程、bridge/扩展版本规则见 [CONTRIBUTING.md](CONTRIBUTING.md)；**发布到 npm** 的完整流程（首次手动发布，之后由 `v*` tag 经 trusted publishing/OIDC 自动发布）见 [docs/release.md](docs/release.md)。
 
 ## 安全
 
@@ -362,11 +362,15 @@ pnpm check       # 以上三步
 |---|---|
 | `src/index.ts`、`src/routes.ts`、`src/node-runtime.ts`、`src/config-values.ts`、`src/bridge-diagnostics.ts`、`src/guidance.ts` | DSH 宿主端 |
 | `src/bridge/index.ts` | 独立 MCP/WebSocket 桥接子进程 |
+| `src/bridge/design-rules.ts` | 可强制的设计限制：网络命名、线宽档位、过孔几何 |
 | `src/client/` | Web 设置卡片 |
 | `jlc-extension/` | 嘉立创EDA专业版扩展（打包进 zip） |
 | `test/` | 单元测试 |
+| `docs/design-rules.md` | 原理图 + PCB 设计规范正文 |
 | `docs/tools.md` | 自动生成的完整工具参考（名称/描述/参数/必填项） |
-| `build.mjs` | esbuild 打包 + 扩展 zip |
+| `docs/release.md` | 维护者发布手册（npm、trusted publishing、版本约定） |
+| `scripts/gen-tools-doc.mjs` | 从构建产物重新生成 `docs/tools.md` |
+| `build.mjs` | esbuild 打包（可复现）+ 扩展 zip |
 
 ## 许可证
 

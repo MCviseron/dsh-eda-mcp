@@ -73,14 +73,20 @@ plugin silently does nothing".
 ```sh
 # 1. bump "version" in package.json, add the changelog heading, run pnpm check
 # 2. commit, then tag and push
-git commit -am "chore(release): 0.5.2"
-git tag -a v0.5.2 -m "dsh-eda-mcp 0.5.2"
+git commit -am "chore(release): 0.6.2"
+git tag -a v0.6.2 -m "dsh-eda-mcp 0.6.2"
 git push origin main --follow-tags
 ```
 
 `package.json.version` tracks the plugin package; `lib/bridge.mjs` + the EDA
 extension have their own version pair (they are the wire contract between the
 bridge process and JLCEDA, and `eda_status` reports a mismatch).
+
+Publishing to npm is documented step by step in [`docs/release.md`](docs/release.md):
+first release is manual (2FA / staged publishing), afterwards the `publish`
+workflow releases on every `v*` tag through npm trusted publishing (OIDC, no
+token in the repo). Run `npm pack --dry-run` before tagging — the tarball must
+contain `lib/`, the extension zip and `docs/`.
 
 ## License
 

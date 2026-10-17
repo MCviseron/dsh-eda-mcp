@@ -172,7 +172,7 @@ Build outputs:
 
 `lib/` and the zip are build outputs and are git-ignored; the host loads the packaged `lib/index.js`, so a change under `src/` needs `pnpm build` plus a Host restart (a plugin reload does not re-import a cached ESM module).
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the repository layout, the release/tag flow, and the bridge/extension version rule.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the repository layout, the release/tag flow, and the bridge/extension version rule. Publishing to npm — the first release is manual, then `v*` tags publish through trusted publishing (OIDC, no token) — is documented in [docs/release.md](docs/release.md).
 
 ## Security
 
@@ -198,11 +198,15 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the repository layout, the release/ta
 |---|---|
 | `src/index.ts`, `src/routes.ts`, `src/node-runtime.ts`, `src/config-values.ts`, `src/bridge-diagnostics.ts`, `src/guidance.ts` | DSH host half |
 | `src/bridge/index.ts` | Standalone MCP/WebSocket bridge child |
+| `src/bridge/design-rules.ts` | Enforceable design limits: net naming, width tiers, via geometry |
 | `src/client/` | Web settings card |
 | `jlc-extension/` | JLCEDA Pro extension packaged into the zip |
 | `test/` | Unit tests |
+| `docs/design-rules.md` | Normative schematic + PCB rule set |
 | `docs/tools.md` | Generated tool reference (every MCP tool, its parameters, and required fields) |
-| `build.mjs` | esbuild bundles + extension zip |
+| `docs/release.md` | Maintainer publishing runbook (npm, trusted publishing) |
+| `scripts/gen-tools-doc.mjs` | Regenerates `docs/tools.md` from the built bridge |
+| `build.mjs` | esbuild bundles (reproducible) + extension zip |
 
 ## License
 

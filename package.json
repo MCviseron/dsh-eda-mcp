@@ -1,6 +1,6 @@
 {
   "name": "dsh-eda-mcp",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "DeepSeek Harness (DSH) plugin — connects DSH to JLCEDA Pro (EasyEDA Pro) via a local MCP bridge and draws schematics through the JLCEDA extension API.",
   "license": "Apache-2.0",
   "author": {
@@ -31,7 +31,8 @@
     "node": "^22.19.0 || >=24"
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
   },
   "type": "module",
   "main": "lib/index.js",
@@ -46,9 +47,13 @@
     "lib",
     "src",
     "test",
+    "docs",
     "jlc-extension",
     "dsh-eda-bridge-extension.zip",
     "cordis.patch.yml",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "LICENSE",
     "README.md",
     "README.zh.md"
   ],
@@ -70,6 +75,7 @@
     "test": "node --experimental-strip-types test/node-runtime.test.ts && node --experimental-strip-types test/config-values.test.ts && node --experimental-strip-types test/design-rules.test.ts",
     "check": "pnpm typecheck && pnpm test && pnpm build",
     "docs": "node scripts/gen-tools-doc.mjs",
+    "prepublishOnly": "pnpm check",
     "prepare": "pnpm build"
   },
   "dependencies": {

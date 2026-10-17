@@ -12,6 +12,22 @@ const sharedExternal = [
   'react-dom/*',
 ]
 
+/**
+ * esbuild writes a `// node_modules/.pnpm/<pkg>_<peer-hash>/…` comment for every
+ * inlined module. The peer hash depends on the local pnpm layout, so the same
+ * source produces different bytes on different machines — which breaks both a
+ * "committed build matches a fresh build" check and reproducible publishing.
+ * The comments carry no runtime meaning, so they are stripped.
+ */
+async function stripBuildComments(file) {
+  const text = await readFile(file, 'utf8')
+  const kept = text.split('\n').filter(line => !/^\s*\/\/\s*node_modules\//.test(line))
+  if (kept.length === text.split('\n').length) return 0
+  const stripped = kept.join('\n')
+  await writeFile(file, stripped, 'utf8')
+  return text.length - stripped.length
+}
+
 await mkdir('lib', { recursive: true })
 
 // Host half: one ESM bundle with local source inlined and all shared packages external.
@@ -99,3 +115,13 @@ execFileSync('powershell', [
 ], { stdio: 'inherit' })
 
 console.log('built lib/index.js, lib/client.js, lib/bridge.mjs, and ' + zipTarget)
+
+// Reproducibility: drop the build-machine-specific module comments from every
+// bundle (see stripBuildComments) so two machines produce identical bytes.
+let strippedBytes = 0
+for (const file of ['lib/index.js', 'lib/bridge.mjs', 'lib/client.js']) {
+  strippedBytes += await stripBuildComments(file)
+}
+const leftovers = await readFile('lib/client.js', 'utf8')
+const stillEmbedded = (leftovers.match(/^\s*\/\/\s*node_modules\//gm) ?? []).length
+console.log('stripped ' + strippedBytes + ' bytes of build-machine paths' + (stillEmbedded === 0 ? '' : ' (WARNING: ' + stillEmbedded + ' left)'))
