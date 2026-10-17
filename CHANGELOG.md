@@ -27,6 +27,11 @@
   在官方与国内 registry 均未被占用。
 - 依赖可解析性已核对：`@deepseek-ai/dsh-mcp-client`、`dsh-settings`、`dsh-system-prompt`、
   `dsh-host-webserver`（均含 `0.1.5-rc.2`）与 `@deepseek-ai/schemastery`（3.18.x）都在公共 registry 上。
+- **2FA 两种形态都写进手册**：`npm config get auth-type` 为 `web` 时（本机即是）发布只会打印
+  `https://www.npmjs.com/auth/cli/<uuid>` 并在浏览器用安全密钥/设备验证完成，**不需要 6 位码**；
+  只有 TOTP 账号才需要 `--otp` 或改用 `--auth-type=web`。
+- `publish.yml` 增加 `Is this version already on the registry?` 步骤：版本已存在时跳过 `npm publish`，
+  因此**手动发布之后再推 tag 也不会让 CI 变红**（会打印「already published」并正常结束）。
 
 ## 0.6.0
 

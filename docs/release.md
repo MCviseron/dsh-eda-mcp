@@ -39,10 +39,25 @@ npm pack --dry-run                  # 看 tarball 内容
 npm login --registry=https://registry.npmjs.org      # 浏览器登录
 npm whoami --registry=https://registry.npmjs.org     # 应回显你的用户名
 
-npm publish --access public --otp=你的6位动态码
+npm publish            # registry / access 已由 publishConfig 指定
 ```
 
-`--registry` 可省略（`publishConfig.registry` 已指定），但显式写出最稳妥。
+### 2. 2FA：两种形态，先看自己是哪种
+
+npm 支持两种 2FA 形态（[官方文档](https://github.com/npm/documentation/blob/main/content/getting-started/setting-up-your-npm-user-account/accessing-npm-using-2fa.mdx)），
+命令层面靠 `auth-type` 配置区分：
+
+```powershell
+npm config get auth-type     # web = 浏览器/安全密钥；legacy（默认）= TOTP 6 位码
+```
+
+| `auth-type` | 发布时会出现 | 怎么过 |
+|---|---|---|
+| `web`（建议，本机已是这个） | `npm notice Open https://www.npmjs.com/auth/cli/<uuid> ...` 并自动打开浏览器 | 在网页上点「Use security key」/设备验证即可，**不需要输 6 位码** |
+| `legacy` / 未设置（且账号开了 TOTP） | `npm error ... Two-factor authentication ... is required` | 加 `--otp=123456`（30 秒有效），或改用 `npm publish --auth-type=web` |
+
+所以：**能弹浏览器就不用 OTP**；只有 TOTP 账号才需要 `--otp`。不带 `--otp` 又被拒时，
+说明账号是 TOTP 形态，改用 `npm publish --auth-type=web` 或补 `--otp`。
 
 ### 2a. 如果 npm 把它「暂存」了（`0.0.0-stage` 占位版）
 
@@ -53,7 +68,7 @@ npm publish --access public --otp=你的6位动态码
 
 ```powershell
 npx --yes npm@12 stage list                        # 列出暂存版本与 stage-id
-npx --yes npm@12 stage approve <stage-id>          # 批准即真正发布（要 OTP）
+npx --yes npm@12 stage approve <stage-id>          # 批准即真正发布（同样走 2FA 流程）
 # 需要重新暂存时：
 npx --yes npm@12 stage publish . --registry=https://registry.npmjs.org
 ```
@@ -65,6 +80,11 @@ npx --yes npm@12 stage publish . --registry=https://registry.npmjs.org
 ```powershell
 npx --yes npm@12 unpublish dsh-eda-mcp@0.0.0-stage --registry=https://registry.npmjs.org
 ```
+
+### 2c. 手动发布之后推 tag 是安全的
+
+`publish.yml` 里有一步 `Is this version already on the registry?`：版本已存在时**跳过发布**，
+所以手动发布后再推 `v<版本>` tag 不会让 CI 变红（它会跑完校验并打印「already published」）。
 
 ## 3. 发布后验证
 
