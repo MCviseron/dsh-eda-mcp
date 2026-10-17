@@ -3,6 +3,12 @@ import { createHash } from 'node:crypto'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import type { Socket } from 'node:net'
 import { createInterface } from 'node:readline'
+import {
+  ANNULUS_MIN_MM, BOARD_OUTLINE_WIDTH_MIL, MIN_TRACK_WIDTH_MIL, POUR_CLEARANCE_MIN_MIL,
+  POUR_CLEARANCE_RECOMMENDED_MIL, SILKSCREEN_HEIGHT_MIN_MM, SILKSCREEN_WIDTH_MIN_MM,
+  TRACK_WIDTH_MIL, VIA_HOLE_ABSOLUTE_MIN_MM, VIA_HOLE_MIN_MM, VIA_SIZES_MM,
+  assertNetName, checkNetName, checkTrackWidth, checkVia, classifyNet, milToMm, suggestTrackWidthMil,
+} from './design-rules.ts'
 
 const VERSION = '0.3.5'
 const WS_PORT = Number(process.env.DSH_EDA_MCP_WS_PORT ?? 39009)
@@ -267,8 +273,8 @@ const TOOLS = [
   { name: 'pcb_get_nets', description: 'List PCB nets. Set detail=true for full net info.', inputSchema: objectSchema({ detail: { type: 'boolean' }, name: { type: 'string' } }) },
   { name: 'pcb_get_layers', description: 'List PCB layers.', inputSchema: objectSchema({}) },
   { name: 'pcb_place_component', description: 'Place a PCB component/footprint. Coordinates are mil.', inputSchema: objectSchema({ libraryUuid: { type: 'string' }, uuid: { type: 'string' }, layer: { type: ['string', 'integer'] }, x: { type: 'number' }, y: { type: 'number' }, rotation: { type: 'number' } }, ['libraryUuid', 'uuid', 'layer', 'x', 'y']) },
-  { name: 'pcb_draw_track', description: 'Draw a PCB track segment. Coordinates are mil.', inputSchema: objectSchema({ net: { type: 'string' }, layer: { type: ['string', 'integer'] }, startX: { type: 'number' }, startY: { type: 'number' }, endX: { type: 'number' }, endY: { type: 'number' }, lineWidth: { type: 'number' } }, ['net', 'layer', 'startX', 'startY', 'endX', 'endY']) },
-  { name: 'pcb_draw_via', description: 'Place a PCB via. Coordinates and sizes are mil.', inputSchema: objectSchema({ net: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, holeDiameter: { type: 'number' }, diameter: { type: 'number' }, viaType: { type: 'integer', enum: [0, 1, 2] } }, ['net', 'x', 'y', 'holeDiameter', 'diameter']) },
+  { name: 'pcb_draw_track', description: 'Draw a PCB track segment. Coordinates are mil. lineWidth defaults to the role-based rule value (signal 6 mil / power 16 mil / GND 16 mil) and is rejected below the 6 mil (0.15 mm) design minimum unless force=true.', inputSchema: objectSchema({ net: { type: 'string' }, layer: { type: ['string', 'integer'] }, startX: { type: 'number' }, startY: { type: 'number' }, endX: { type: 'number' }, endY: { type: 'number' }, lineWidth: { type: 'number' }, force: { type: 'boolean' } }, ['net', 'layer', 'startX', 'startY', 'endX', 'endY']) },
+  { name: 'pcb_draw_via', description: 'Place a PCB via. Coordinates and sizes are mil. holeDiameter/diameter default to a standard drill pair (0.2/0.4 mm signal, 0.3/0.6 mm power); the annular ring must be >= 0.2 mm and the hole >= 0.2 mm, and a hole below 0.3 mm (free-prototyping bound) is reported as a warning.', inputSchema: objectSchema({ net: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, holeDiameter: { type: 'number' }, diameter: { type: 'number' }, viaType: { type: 'integer', enum: [0, 1, 2] }, force: { type: 'boolean' } }, ['net', 'x', 'y']) },
   { name: 'pcb_draw_board_outline', description: 'Create a closed board outline on the BoardOutline layer (layer 11) from a flat [x1,y1,x2,y2,...] point list in mil. Implemented as ONE pcb_PrimitivePolyline built from a pcb_MathPolygon polygon - the primitive JLCEDA itself stores for a board outline. pcb_PrimitiveLine cannot create it (that API is a copper track and rejects layer 11).', inputSchema: objectSchema({ points: { type: 'array', items: { type: 'number' } }, lineWidth: { type: 'number' }, net: { type: 'string' }, locked: { type: 'boolean' } }, ['points']) },
   { name: 'pcb_draw_polyline', description: 'Create a closed polyline (pcb_PrimitivePolyline) on any line layer: board outline 11, silkscreen 3/4, assembly 9/10, mechanical 14, document 13, copper 1/2. points is a flat [x1,y1,x2,y2,...] array in mil and is closed automatically.', inputSchema: objectSchema({ points: { type: 'array', items: { type: 'number' } }, layer: { type: ['string', 'integer'] }, net: { type: 'string' }, lineWidth: { type: 'number' }, locked: { type: 'boolean' } }, ['points', 'layer']) },
   { name: 'pcb_save_document', description: 'Save the active PCB document.', inputSchema: objectSchema({}) },
@@ -301,6 +307,7 @@ const TOOLS = [
   { name: 'eda_pcb_run_drc', description: 'Run PCB DRC (pcb_Drc.check). includeVerboseError=true returns the verbose error array (strict=true also reports warnings). Set userInterface=true only if the user should see the DRC panel.', inputSchema: objectSchema({ strict: { type: 'boolean' }, userInterface: { type: 'boolean' }, includeVerboseError: { type: 'boolean' } }) },
   { name: 'eda_pcb_get_drc_rules', description: 'Return the current PCB DRC rule configuration name and content.', inputSchema: objectSchema({}) },
   { name: 'eda_pcb_set_net_track_width', description: 'Set the track width of every existing track of one net (iterates pcb_PrimitiveLine.getAll + pcb_PrimitiveLine.modify). Use it to thicken power/GND nets after auto-routing.', inputSchema: objectSchema({ net: { type: 'string' }, lineWidth: { type: 'number' }, layer: { type: ['string', 'integer'] } }, ['net', 'lineWidth']) },
+  { name: 'eda_design_audit', description: 'Read-only audit of the active PCB against docs/design-rules.md: per-net track widths (min 6 mil, role suggestions), via drill/annular ring, net-name legality, board outline, copper pour, and PCB DRC. Returns violations, warnings, a checklist, the per-net minimum widths, and the rule values used. drc=false skips the DRC run.', inputSchema: objectSchema({ net: { type: 'string' }, drc: { type: 'boolean' } }) },
   { name: 'eda_pcb_get_regions', description: 'List PCB regions (pcb_PrimitiveRegion.getAll). layer must be a copper layer (top 1 / bottom 2 / inner 15-44) or MULTI 12.', inputSchema: objectSchema({ layer: { type: ['string', 'integer'] }, ruleType: { type: 'array', items: { type: 'integer' } }, locked: { type: 'boolean' } }) },
   { name: 'eda_pcb_delete_region', description: 'Delete a PCB region (pcb_PrimitiveRegion.delete).', inputSchema: objectSchema({ primitiveId: { type: 'string' } }, ['primitiveId']) },
   { name: 'eda_pcb_auto_place', description: 'Run PCB auto-layout (pcb_Document.autoLayout). Blocking by default (layout is fast); pass wait=false to start it as a background job and poll eda_pcb_job_status.', inputSchema: objectSchema({ wait: { type: 'boolean' }, timeoutMs: { type: 'integer' } }) },
@@ -664,6 +671,108 @@ async function pcbPrimitiveList(method, callArgs, timeoutMs) {
   }
 }
 
+/**
+ * Audit the active PCB against `docs/design-rules.md`. Read-only: it never edits
+ * the board, it reports what a reviewer would flag and what the tool defaults
+ * would have produced.
+ */
+async function auditPcb(args, timeoutMs) {
+  const netFilter = args.net === undefined ? undefined : String(args.net)
+  const tracks = await pcbPrimitiveList('pcb_PrimitiveLine.getAll', [netFilter, undefined, undefined], timeoutMs)
+  const vias = await pcbPrimitiveList('pcb_PrimitiveVia.getAll', [netFilter, undefined], timeoutMs)
+  const pours = await pcbPrimitiveList('pcb_PrimitivePour.getAll', [netFilter, undefined, undefined], timeoutMs)
+  const outline = await pcbPrimitiveList('pcb_PrimitivePolyline.getAll', [undefined, PCB_LAYERS.boardOutline, undefined], timeoutMs)
+
+  const violations = []
+  const warnings = []
+  const add = (bucket, rule, message, samples) => {
+    const entry = bucket.find(item => item.rule === rule)
+    if (entry === undefined) bucket.push({ rule, message, count: 1, samples: samples.slice(0, 5) })
+    else { entry.count += 1; if (entry.samples.length < 5) entry.samples.push(samples[0]) }
+  }
+
+  // §5.1 track width per net role
+  const widthByNet = new Map()
+  for (const track of tracks) {
+    const record = asRecord(track)
+    const net = String(pickValue(record, 'Net', 'net') ?? '')
+    const width = Number(pickValue(record, 'LineWidth', 'lineWidth'))
+    if (!Number.isFinite(width) || width <= 0) continue
+    const seen = widthByNet.get(net)
+    if (seen === undefined || width < seen) widthByNet.set(net, width)
+    const check = checkTrackWidth(net, width, false)
+    if (!check.ok) add(violations, 'track-width-min', check.errors.join('; '), [pickValue(record, 'PrimitiveId', 'primitiveId')])
+    else if (check.warnings.length > 0) add(warnings, 'track-width-role', check.warnings.join('; '), [pickValue(record, 'PrimitiveId', 'primitiveId')])
+  }
+
+  // §5.2 via drill / annular ring
+  for (const via of vias) {
+    const record = asRecord(via)
+    const net = String(pickValue(record, 'Net', 'net') ?? '')
+    const hole = Number(pickValue(record, 'HoleDiameter', 'holeDiameter'))
+    const pad = Number(pickValue(record, 'Diameter', 'diameter'))
+    if (!Number.isFinite(hole) || !Number.isFinite(pad)) continue
+    const check = checkVia(net, hole, pad, false)
+    if (!check.ok) add(violations, 'via-geometry', check.errors.join('; '), [pickValue(record, 'PrimitiveId', 'primitiveId')])
+    else if (check.warnings.length > 0) add(warnings, 'via-standard', check.warnings.join('; '), [pickValue(record, 'PrimitiveId', 'primitiveId')])
+  }
+
+  // §2.1 net naming
+  let netNames = []
+  try { netNames = await callExtension('pcb_Net.getAllNetsName', [], timeoutMs) } catch { netNames = [] }
+  if (!Array.isArray(netNames)) netNames = []
+  for (const name of netNames) {
+    const text = String(name)
+    const check = checkNetName(text)
+    if (!check.ok) add(violations, 'net-name', check.errors.join('; '), [text])
+    else if (check.warnings.length > 0) add(warnings, 'net-name-style', check.warnings.join('; '), [text])
+  }
+
+  // §7.2 board outline, §5.4 copper pour
+  if (outline.length === 0) violations.push({ rule: 'board-outline', message: 'No board outline on layer 11: auto-routing and Gerber export need a closed outline (pcb_draw_board_outline)', count: 1, samples: [] })
+  if (pours.length === 0) warnings.push({ rule: 'copper-pour', message: 'No copper pour: a GND pour on the top/bottom layer is the recommended way to carry ground (eda_pcb_create_pour)', count: 1, samples: [] })
+
+  // §6.3 DRC
+  let drc = { ran: false, reason: null, violationCount: null }
+  if (args.drc !== false) {
+    try {
+      const outcome = await callExtension('pcb_Drc.check', [true, false, true], toolTimeout(args, timeoutMs))
+      drc = { ran: true, reason: null, violationCount: Array.isArray(outcome) ? outcome.length : (outcome === true ? 0 : null) }
+    } catch (error) {
+      drc = { ran: false, reason: error instanceof Error ? error.message : String(error), violationCount: null }
+    }
+  }
+  if (drc.ran && drc.violationCount !== null && drc.violationCount > 0) {
+    violations.push({ rule: 'drc', message: `PCB DRC reports ${drc.violationCount} violation(s)`, count: drc.violationCount, samples: [] })
+  }
+
+  const checklist = [
+    { item: '板框存在（层 11 闭合折线）', status: outline.length > 0 ? 'pass' : 'fail' },
+    { item: '走线宽度 ≥ ' + MIN_TRACK_WIDTH_MIL + ' mil（0.15 mm）', status: violations.some(item => item.rule === 'track-width-min') ? 'fail' : 'pass' },
+    { item: '过孔孔径/焊环合规（≥' + VIA_HOLE_MIN_MM + ' mm 建议，焊环 ≥' + ANNULUS_MIN_MM + ' mm）', status: violations.some(item => item.rule === 'via-geometry') ? 'fail' : 'pass' },
+    { item: '网络名仅含可解析字符', status: violations.some(item => item.rule === 'net-name') ? 'fail' : 'pass' },
+    { item: 'GND 铺铜', status: pours.length > 0 ? 'pass' : 'warn' },
+    { item: 'PCB DRC', status: drc.violationCount === 0 ? 'pass' : (drc.violationCount === null ? 'unknown' : 'fail') },
+  ]
+
+  return {
+    ok: violations.length === 0,
+    counts: { tracks: tracks.length, vias: vias.length, pours: pours.length, outlinePolylines: outline.length, nets: netNames.length },
+    minWidthByNet: Object.fromEntries([...widthByNet.entries()].map(([net, width]) => [net, { widthMil: width, role: classifyNet(net), suggestedMil: suggestTrackWidthMil(net) }])),
+    violations, warnings, checklist, drc,
+    rules: {
+      minTrackMil: MIN_TRACK_WIDTH_MIL,
+      trackWidthTiers: TRACK_WIDTH_MIL,
+      viaSizesMm: VIA_SIZES_MM,
+      viaHoleMinMm: VIA_HOLE_MIN_MM,
+      annulusMinMm: ANNULUS_MIN_MM,
+      pourClearanceMil: { required: POUR_CLEARANCE_MIN_MIL, recommended: POUR_CLEARANCE_RECOMMENDED_MIL },
+      silkscreenMinMm: { height: SILKSCREEN_HEIGHT_MIN_MM, width: SILKSCREEN_WIDTH_MIN_MM },
+      boardOutlineWidthMil: BOARD_OUTLINE_WIDTH_MIL,
+    },
+  }
+}
+
 async function clearRoutingBatched(args, type, timeoutMs) {
   if (type === 'connection') throw new Error('eda_pcb_clear_routing: type=connection needs the EDA user interface; use type=all/net with mode=batched')
   const net = args.net === undefined ? undefined : String(args.net)
@@ -718,6 +827,7 @@ async function parseNetlist(previous, timeoutMs) {
 
 async function placeNetLabel(net, x, y, fontSize, timeoutMs) {
   if (net === '' || net === 'undefined') throw new Error('a net name is required')
+  assertNetName(String(net), 'eda_place_net_label')
   const size = fontSize === undefined ? 12 : Number(fontSize)
   try {
     // Measured on JLCEDA Pro 3.2.186: eda.sch_PrimitiveAttribute.createNetLabel exists
@@ -859,6 +969,7 @@ async function executeTool(name, rawArgs, timeoutMs) {
     case 'eda_place_net_flag': {
       const x = Number(args.x)
       const y = Number(args.y)
+      assertNetName(String(args.net), 'eda_place_net_flag')
       if (args.allowOutsideFrame !== true) {
         const problem = checkPointInFrame(x, y, args.paper, 5) ?? checkPointAgainstTitleBlock(x, y, args.paper, 5)
         if (problem !== undefined) throw new Error('eda_place_net_flag refused: ' + problem)
@@ -871,6 +982,7 @@ async function executeTool(name, rawArgs, timeoutMs) {
     case 'eda_place_net_port': {
       const x = Number(args.x)
       const y = Number(args.y)
+      assertNetName(String(args.net), 'eda_place_net_port')
       if (args.allowOutsideFrame !== true) {
         const problem = checkPointInFrame(x, y, args.paper, 5) ?? checkPointAgainstTitleBlock(x, y, args.paper, 5)
         if (problem !== undefined) throw new Error('eda_place_net_port refused: ' + problem)
@@ -892,6 +1004,7 @@ async function executeTool(name, rawArgs, timeoutMs) {
     case 'eda_place_net_label_at_pin': {
       const pinPrimitiveId = String(args.pinPrimitiveId ?? '')
       if (pinPrimitiveId === '') throw new Error('pinPrimitiveId is required')
+      assertNetName(String(args.net ?? ''), name === 'eda_place_net_flag_at_pin' ? 'eda_place_net_flag_at_pin' : 'eda_place_net_label_at_pin')
       const pin = await callExtension('sch_PrimitivePin.get', [pinPrimitiveId], timeoutMs)
       const pinRecord = asRecord(pin)
       const pinX = Number(pickValue(pinRecord, 'X', 'x'))
@@ -974,11 +1087,14 @@ async function executeTool(name, rawArgs, timeoutMs) {
     case 'eda_draw_wire': {
       const points = flattenPoints(args.points)
       if (points.length < 4 || points.length % 2 !== 0) throw new Error('points must be a flat array with an even length >= 4')
-      return await callExtension('sch_PrimitiveWire.create', [
+      if (args.net !== undefined && String(args.net) !== '') assertNetName(String(args.net), 'eda_draw_wire')
+      const wire = await callExtension('sch_PrimitiveWire.create', [
         points, args.net, args.color,
         args.lineWidth === undefined ? undefined : Number(args.lineWidth),
         args.lineType === undefined ? undefined : Number(args.lineType),
       ], timeoutMs)
+      const warnings = args.net === undefined || String(args.net) === '' ? [] : checkNetName(String(args.net)).warnings
+      return warnings.length === 0 ? wire : { created: wire, rules: { warnings } }
     }
 
     case 'eda_draw_rectangle':
@@ -1169,17 +1285,41 @@ async function executeTool(name, rawArgs, timeoutMs) {
     case 'pcb_draw_track': {
       const layer = resolvePcbLayer(args.layer)
       if (layer === undefined) throw new Error('pcb_draw_track requires a valid layer')
-      return await callExtension('pcb_PrimitiveLine.create', [
-        String(args.net), layer, Number(args.startX), Number(args.startY), Number(args.endX), Number(args.endY),
-        args.lineWidth === undefined ? undefined : Number(args.lineWidth),
+      const net = String(args.net)
+      assertNetName(net, 'pcb_draw_track')
+      // Width defaults to the role-based suggestion and is checked against the
+      // 0.15 mm design minimum (docs/design-rules.md §5.1); force overrides.
+      const width = checkTrackWidth(net, args.lineWidth === undefined ? undefined : Number(args.lineWidth), args.force === true)
+      if (!width.ok) throw new Error('pcb_draw_track: ' + width.errors.join('; '))
+      const created = await callExtension('pcb_PrimitiveLine.create', [
+        net, layer, Number(args.startX), Number(args.startY), Number(args.endX), Number(args.endY),
+        width.widthMil,
       ], timeoutMs)
+      return { created, rules: { net, role: width.role, widthMil: width.widthMil, suggestedMil: width.suggestedMil, warnings: width.warnings } }
     }
 
-    case 'pcb_draw_via':
-      return await callExtension('pcb_PrimitiveVia.create', [
-        String(args.net), Number(args.x), Number(args.y), Number(args.holeDiameter), Number(args.diameter),
+    case 'pcb_draw_via': {
+      const net = String(args.net)
+      assertNetName(net, 'pcb_draw_via')
+      // Defaults follow the standard drill pairs; geometry is checked in mm.
+      const role = classifyNet(net)
+      const defaultVia = role === 'signal' ? VIA_SIZES_MM[0] : VIA_SIZES_MM[1]
+      const hole = args.holeDiameter === undefined ? defaultVia.hole * 39.37007874015748 : Number(args.holeDiameter)
+      const pad = args.diameter === undefined ? defaultVia.pad * 39.37007874015748 : Number(args.diameter)
+      const via = checkVia(net, hole, pad, args.force === true)
+      if (!via.ok) throw new Error('pcb_draw_via: ' + via.errors.join('; '))
+      const created = await callExtension('pcb_PrimitiveVia.create', [
+        net, Number(args.x), Number(args.y), hole, pad,
         args.viaType === undefined ? undefined : Number(args.viaType),
       ], timeoutMs)
+      return {
+        created,
+        rules: {
+          net, role, holeMm: Number(via.holeMm.toFixed(3)), padMm: Number(via.padMm.toFixed(3)),
+          annulusMm: Number(via.annulusMm.toFixed(3)), warnings: via.warnings,
+        },
+      }
+    }
 
     case 'pcb_draw_board_outline': {
       const points = requireFlatPoints(args.points, tool)
@@ -1401,6 +1541,7 @@ async function executeTool(name, rawArgs, timeoutMs) {
     case 'eda_pcb_create_pour': {
       const layer = resolveRegionLayer(args.layer, 'eda_pcb_create_pour')
       const points = requireFlatPoints(args.points, 'eda_pcb_create_pour')
+      assertNetName(String(args.net), 'eda_pcb_create_pour')
       const fill = args.pourFillMethod === undefined ? undefined : String(args.pourFillMethod)
       if (fill !== undefined && fill !== '45grid' && fill !== '90grid' && fill !== 'solid') throw new Error('eda_pcb_create_pour: pourFillMethod must be 45grid, 90grid or solid')
       const raw = await callExtension('dsh.internal.pourCreate', [
@@ -1411,7 +1552,13 @@ async function executeTool(name, rawArgs, timeoutMs) {
         args.lineWidth === undefined ? undefined : Number(args.lineWidth),
         args.locked === undefined ? undefined : Boolean(args.locked),
       ], timeoutMs)
-      return { net: String(args.net), layer, layerId: layer, pointCount: points.length / 2, pour: summarizePrimitive(raw) }
+      return {
+        net: String(args.net), layer, layerId: layer, pointCount: points.length / 2, pour: summarizePrimitive(raw),
+        rules: {
+          clearanceMil: { required: POUR_CLEARANCE_MIN_MIL, recommended: POUR_CLEARANCE_RECOMMENDED_MIL },
+          note: 'The pour/clearance value lives in the board design rules, not in this call: set it in 设计 → 设计规则 (recommended ' + POUR_CLEARANCE_RECOMMENDED_MIL + ' mil) and remove islands before exporting.',
+        },
+      }
     }
 
     case 'eda_pcb_get_pours': {
@@ -1451,6 +1598,8 @@ async function executeTool(name, rawArgs, timeoutMs) {
       const net = String(args.net)
       const lineWidth = Number(args.lineWidth)
       if (!Number.isFinite(lineWidth) || lineWidth <= 0) throw new Error('eda_pcb_set_net_track_width: lineWidth must be a positive number (mil)')
+      const width = checkTrackWidth(net, lineWidth, args.force === true)
+      if (!width.ok) throw new Error('eda_pcb_set_net_track_width: ' + width.errors.join('; '))
       const layer = args.layer === undefined ? undefined : resolvePcbLayer(args.layer)
       if (args.layer !== undefined && layer === undefined) throw new Error('eda_pcb_set_net_track_width: invalid layer ' + String(args.layer))
       const raw = await callExtension('pcb_PrimitiveLine.getAll', [net, layer, undefined], timeoutMs)
@@ -1467,6 +1616,9 @@ async function executeTool(name, rawArgs, timeoutMs) {
       const failed = results.filter(item => item.ok === false)
       return { net, lineWidth, layer: layer ?? null, matched: ids.length, updated: ids.length - failed.length, failed, results: args.verbose === true ? results : undefined }
     }
+
+    case 'eda_design_audit':
+      return await auditPcb(args, timeoutMs)
 
     case 'eda_pcb_get_regions': {
       const raw = await callExtension('pcb_PrimitiveRegion.getAll', [

@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.6.0
+
+### 设计规范落地：可量化部分改为工具强制，另加只读审计
+
+新增规范正文 [`docs/design-rules.md`](docs/design-rules.md)（原理图分区/放置、网络命名、PCB 布局、
+线宽/过孔/铺铜、DRC、丝印板框、制造输出、打样检查清单与推荐工作流），并把其中**能判定的部分**做成代码：
+
+- 新增 `src/bridge/design-rules.ts`（14 个单测，`test/design-rules.test.ts`）：
+  - `checkNetName` / `assertNetName`：允许字母、数字、`_`、`.`、`+`、`-`，最长 255 字符；空格、斜杠、括号、中文等
+    JLC 后端无法解析的字符**直接拒绝**（后端按精确字符串匹配，`USB_DP/DM` 会被拆成两个网络）；非大写只给警告。
+  - `classifyNet` / `suggestTrackWidthMil`：按网络名分 ground / power / signal，给出 6 / 16 mil 的角色默认线宽。
+  - `checkTrackWidth`：低于 **6 mil（0.15 mm）** 报错（`force:true` 可越过）；低于角色建议值给警告；
+    不在 0.05 mm 步进上的线宽给圆整提示（四个档位值 6/10/16/20 mil 豁免）。
+  - `checkVia`：焊环按 **盘径−孔径 ≥ 0.20 mm** 判定（0.2/0.4、0.3/0.6、0.4/0.8 三组标准尺寸均满足），
+    孔径 <0.2 mm 报错、<0.3 mm（免费打样下限）警告，非标尺寸警告。
+- 工具接线：
+  - `pcb_draw_track` 的 `lineWidth` 变为**可选**（按角色取默认值），并回传 `rules` 说明实际用了哪个宽度；
+  - `pcb_draw_via` 的 `holeDiameter`/`diameter` 变为**可选**（按角色取标准孔径）；
+  - 所有带 `net` 的工具（`eda_draw_wire`、`eda_place_net_flag/port/label(_at_pin)`、`pcb_draw_track/via`、
+    `eda_pcb_create_pour`）统一走网络名校验；`eda_pcb_set_net_track_width` 同样校验线宽；
+  - `eda_pcb_create_pour` 回传铺铜间距要求（≥6 mil / 建议 10 mil）与「去孤岛」提醒（间距属于板级规则，API 写不了）。
+- **新增只读审计工具 `eda_design_audit`**：一次调用返回 `violations` / `warnings` / `checklist`，
+  逐项检查每个网络的走线线宽（含 `minWidthByNet` 与角色建议值）、过孔孔径与焊环、网络名合法性、板框、
+  铺铜、PCB DRC（可 `drc:false` 跳过）。布线前后各跑一次即可对照 `docs/design-rules.md` §9 清单。
+- 系统提示（`src/guidance.ts`）改为**规范优先**的紧凑版本：网络命名、线宽档位、过孔标准尺寸、铺铜与 DRC、
+  分区/布局/丝印流程、长任务轮询、活动文档规则；细则留在 `docs/design-rules.md`，避免每轮 prompt 过长。
+- 工具总数 81 → **82**；`docs/tools.md` 由新增的 `scripts/gen-tools-doc.mjs`（`pnpm docs`）重新生成。
+
+### 未改动
+
+- bridge 与 EDA 扩展的线协议版本仍为 **0.3.5**（白名单与内部助手未变，**无需重新导入 zip**）。
+- 平台相关能力（丝印尺寸、布局评分、铺铜间距）API 不暴露，因此只写进规范与提示，不做自动判定。
+
 ## 0.5.1
 
 ### 修复：官方桌面端（DSH 0.2.0-rc.2）里 bridge 子进程根本起不来

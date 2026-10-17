@@ -1,6 +1,11 @@
 # Tool reference (generated)
 
-Generated from the built bridge's MCP `tools/list` — this is the authoritative list of what the agent can call. Coordinates: schematic/symbol = **0.01 inch** (MCP units), PCB = **mil**. Rotation = 0/90/180/270 for schematic primitives.
+Generated from the built bridge's MCP `tools/list` by `node scripts/gen-tools-doc.mjs` — this is the
+authoritative list of what the agent can call. Coordinates: schematic/symbol = **0.01 inch**
+(MCP units), PCB = **mil**. Rotation = 0/90/180/270 for schematic primitives.
+
+Design limits enforced by these tools (track widths, via sizes, net naming) are documented in
+[design-rules.md](design-rules.md).
 
 ## Schematic: query
 
@@ -25,8 +30,8 @@ Generated from the built bridge's MCP `tools/list` — this is the authoritative
 | `eda_place_component` | Place a JLCEDA library component on the active schematic page. Coordinates are MCP units (0.01 inch), origin at the lower-left of the A4 frame. Placement is rejected when the symbol leaves the frame or overlaps the title block unless allowOutsideFrame is true. | `libraryUuid: string, uuid: string, x: number, y: number, subPartName?: string, rotation?: integer, mirror?: boolean, addIntoBom?: boolean, addIntoPcb?: boolean, designator?: string, value?: string, name?: string, paper?: string, allowOutsideFrame?: boolean` |
 | `eda_place_net_flag` | Place a power/ground net flag (VCC/GND etc.) on the active schematic page. | `identification: string, net: string, x: number, y: number, rotation?: integer, mirror?: boolean, paper?: string, allowOutsideFrame?: boolean` |
 | `eda_place_net_port` | Place a net port on the active schematic page. | `direction: string, net: string, x: number, y: number, rotation?: integer, mirror?: boolean, paper?: string, allowOutsideFrame?: boolean` |
-| `eda_place_net_flag_at_pin` | Read one pin position and place a power/ground net flag at that pin, with optional MCP-unit offsets. | `pinPrimitiveId: string, identification: string, net: string, offsetX?: number, offsetY?: number, rotation?: integer, mirror?: boolean` |
-| `eda_place_net_label_at_pin` | Read one pin position and place a REAL net label there (sch_PrimitiveAttribute.createNetLabel; falls back to text and reports which method was used), with optional MCP-unit offsets. | `pinPrimitiveId: string, net: string, offsetX?: number, offsetY?: number, rotation?: integer, fontSize?: number` |
+| `eda_place_net_flag_at_pin` | Place a power/ground net flag at a pin WITHOUT covering the symbol: the pin direction is read from the pin rotation, a stub wire of stubLength MCP units (default 20) is drawn outwards from the pin with the net name, and the flag is placed at its end. Pass offsetX/offsetY to place it manually (that disables the stub) or stubLength=0 for the old on-pin behaviour. | `pinPrimitiveId: string, identification: string, net: string, stubLength?: number, offsetX?: number, offsetY?: number, rotation?: integer, mirror?: boolean, color?: string, lineWidth?: integer, lineType?: integer, paper?: string, allowOutsideFrame?: boolean` |
+| `eda_place_net_label_at_pin` | Place a REAL net label at a pin (sch_PrimitiveAttribute.createNetLabel; falls back to text and reports method) WITHOUT covering the symbol: a stub wire of stubLength MCP units (default 20) is drawn outwards along the pin direction and the label goes at its end. offsetX/offsetY place it manually (disables the stub); stubLength=0 keeps the old on-pin behaviour. | `pinPrimitiveId: string, net: string, stubLength?: number, offsetX?: number, offsetY?: number, rotation?: integer, fontSize?: number, color?: string, lineWidth?: integer, lineType?: integer, paper?: string, allowOutsideFrame?: boolean` |
 | `eda_set_no_connect` | Set or clear the no-connect flag on one or more schematic pins via sch_PrimitivePin.modify. | `primitiveIds: array, noConnected?: boolean` |
 | `eda_draw_wire` | Draw a schematic wire (polyline). Coordinates are MCP units (0.01 inch). | `points: array, net?: string, color?: string, lineWidth?: integer, lineType?: integer` |
 | `eda_draw_rectangle` | Draw a rectangle. topLeftY is the UPPER y coordinate (max y); height extends downward. Coordinates are MCP units. | `topLeftX: number, topLeftY: number, width: number, height: number, cornerRadius?: number, rotation?: integer, color?: string, fillColor?: string, lineWidth?: integer, lineType?: integer, fillStyle?: string` |
@@ -50,11 +55,11 @@ Generated from the built bridge's MCP `tools/list` — this is the authoritative
 | `eda_export_bom` | Export the schematic BOM. csv returns text; xlsx returns a base64 data URL. | `format?: string` |
 | `eda_create_board` | Create a board linking a schematic and a PCB (dmt_Board.createBoard). | `schematicUuid?: string, pcbUuid?: string` |
 
-## Generic allow-listed API
+## Design rules
 
 | Tool | Description | Parameters |
 |---|---|---|
-| `eda_api_call` | Call an allow-listed JLCEDA Pro extension API method directly. | `method: string, args: array` |
+| `eda_design_audit` | Read-only audit of the active PCB against docs/design-rules.md: per-net track widths (min 6 mil, role suggestions), via drill/annular ring, net-name legality, board outline, copper pour, and PCB DRC. Returns violations, warnings, a checklist, the per-net minimum widths, and the rule values used. drc=false skips the DRC run. | `net?: string, drc?: boolean` |
 
 ## PCB: query
 
@@ -78,8 +83,8 @@ Generated from the built bridge's MCP `tools/list` — this is the authoritative
 | Tool | Description | Parameters |
 |---|---|---|
 | `pcb_place_component` | Place a PCB component/footprint. Coordinates are mil. | `libraryUuid: string, uuid: string, layer: string|integer, x: number, y: number, rotation?: number` |
-| `pcb_draw_track` | Draw a PCB track segment. Coordinates are mil. | `net: string, layer: string|integer, startX: number, startY: number, endX: number, endY: number, lineWidth?: number` |
-| `pcb_draw_via` | Place a PCB via. Coordinates and sizes are mil. | `net: string, x: number, y: number, holeDiameter: number, diameter: number, viaType?: integer` |
+| `pcb_draw_track` | Draw a PCB track segment. Coordinates are mil. lineWidth defaults to the role-based rule value (signal 6 mil / power 16 mil / GND 16 mil) and is rejected below the 6 mil (0.15 mm) design minimum unless force=true. | `net: string, layer: string|integer, startX: number, startY: number, endX: number, endY: number, lineWidth?: number, force?: boolean` |
+| `pcb_draw_via` | Place a PCB via. Coordinates and sizes are mil. holeDiameter/diameter default to a standard drill pair (0.2/0.4 mm signal, 0.3/0.6 mm power); the annular ring must be >= 0.2 mm and the hole >= 0.2 mm, and a hole below 0.3 mm (free-prototyping bound) is reported as a warning. | `net: string, x: number, y: number, holeDiameter?: number, diameter?: number, viaType?: integer, force?: boolean` |
 | `pcb_draw_board_outline` | Create a closed board outline on the BoardOutline layer (layer 11) from a flat [x1,y1,x2,y2,...] point list in mil. Implemented as ONE pcb_PrimitivePolyline built from a pcb_MathPolygon polygon - the primitive JLCEDA itself stores for a board outline. pcb_PrimitiveLine cannot create it (that API is a copper track and rejects layer 11). | `points: array, lineWidth?: number, net?: string, locked?: boolean` |
 | `pcb_draw_polyline` | Create a closed polyline (pcb_PrimitivePolyline) on any line layer: board outline 11, silkscreen 3/4, assembly 9/10, mechanical 14, document 13, copper 1/2. points is a flat [x1,y1,x2,y2,...] array in mil and is closed automatically. | `points: array, layer: string|integer, net?: string, lineWidth?: number, locked?: boolean` |
 | `eda_pcb_move_component` | Move/rotate/modify an existing PCB component (pcb_PrimitiveComponent.modify). Coordinates are mil. | `primitiveId: string, x?: number, y?: number, rotation?: number, layer?: string|integer, locked?: boolean, designator?: string, name?: string` |
@@ -102,7 +107,7 @@ Generated from the built bridge's MCP `tools/list` — this is the authoritative
 | `pcb_import_changes` | Import schematic changes into the active PCB (pcb_Document.importChanges). DEFAULT IS ASYNCHRONOUS because the call opens EDA own sync-confirmation dialog and blocks until the user answers it: the import runs as a background job, the tool returns immediately with componentsBefore, and the answer is detected by eda_pcb_wait_for_components. wait=true blocks instead (only when no dialog appears). | `schematicUuid?: string, wait?: boolean, timeoutMs?: integer` |
 | `eda_pcb_wait_for_components` | Low-frequency poll (default every 5 s, minimum 3 s) that treats "new PCB components appeared" as "the user clicked OK in the schematic-sync confirmation dialog". Returns confirmed/waitedMs/newComponentIds, or confirmed=false after maxWaitMs (default 45 s) so the caller can ask the user and call again. | `pollIntervalMs?: integer, maxWaitMs?: integer, baseline?: array` |
 | `pcb_navigate_to_region` | Navigate the PCB canvas to a region. Coordinates are mil. | `left: number, right: number, top: number, bottom: number` |
-| `eda_pcb_clear_routing` | Clear PCB routing (pcb_Document.clearRouting). type: all \| net \| connection (net/connection act on the current selection). | `type?: string` |
+| `eda_pcb_clear_routing` | Clear PCB routing. DEFAULT IS A BACKGROUND JOB (pcb_Document.clearRouting): clearing a whole board easily exceeds the MCP timeout while EDA keeps working, so the tool returns immediately and you poll eda_pcb_job_status until running=false. With an older EDA extension it automatically degrades to bounded batches (see batchSize) that you repeat until done=true. type: all \| net \| connection (net/connection act on the current selection). mode=batched forces the batched path; net/layer filter it. | `type?: string, wait?: boolean, mode?: string, net?: string, layer?: string|integer, batchSize?: integer, timeoutMs?: integer` |
 | `eda_pcb_auto_place` | Run PCB auto-layout (pcb_Document.autoLayout). Blocking by default (layout is fast); pass wait=false to start it as a background job and poll eda_pcb_job_status. | `wait?: boolean, timeoutMs?: integer` |
 | `eda_pcb_auto_route` | Start PCB auto-routing (pcb_Document.autoRouting). DEFAULT IS ASYNCHRONOUS: the call returns as soon as EDA starts routing (EDA shows its own progress bar) and you poll eda_pcb_job_status until running=false - a long routing job must NOT be awaited, otherwise the MCP call times out while EDA keeps working. Without nets/RoutingNets the bridge enumerates every net, because this EDA build fails every net (success=false, duration=0) when routingRange is empty. wait=true blocks until done (only for small jobs). cornerStyle: 0=45deg, 1=90deg; optimization: 1=completion, 0=faster; existingPrimitiveMode: keep\|remove. | `nets?: array, RoutingNets?: array|string, ignoreNets?: array, layers?: array, cornerStyle?: integer, optimization?: integer, existingPrimitiveMode?: string, wait?: boolean, timeoutMs?: integer, props?: object` |
 | `eda_pcb_export_gerber` | Export PCB Gerber (pcb_ManufactureData.getGerberFile). Returns { name, size, dataUrl } - the zip is base64 encoded, so large boards can produce a big payload. | `fileName?: string, colorSilkscreen?: boolean, unit?: string, integerNumber?: integer, decimalNumber?: integer, other?: object, layers?: array, objects?: array` |
@@ -122,4 +127,10 @@ Generated from the built bridge's MCP `tools/list` — this is the authoritative
 | `eda_pcb_import_changes` | Alias of pcb_import_changes. | `schematicUuid?: string` |
 | `eda_pcb_get_primitives_in_region` | Alias of pcb_get_primitives_in_region. | `left: number, right: number, top: number, bottom: number, leftToRight?: boolean` |
 | `eda_pcb_navigate_to_region` | Alias of pcb_navigate_to_region. | `left: number, right: number, top: number, bottom: number` |
+
+## Generic allow-listed API
+
+| Tool | Description | Parameters |
+|---|---|---|
+| `eda_api_call` | Call an allow-listed JLCEDA Pro extension API method directly. | `method: string, args: array` |
 

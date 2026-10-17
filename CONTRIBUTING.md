@@ -14,10 +14,13 @@ small, and the checks below are the whole contract.
 | `src/routes.ts` | Loopback HTTP routes: test, reconnect, diagnostics, self-test, settings bridge, extension zip |
 | `src/guidance.ts` | System-prompt section injected when `announceToAgent` is on |
 | `src/bridge/index.ts` | Standalone MCP (stdio) + WebSocket bridge child, zero dependencies |
+| `src/bridge/design-rules.ts` | Enforceable half of the design rules: net naming, width tiers, via geometry |
 | `src/client/` | Web settings card (slot `settings.section`) |
 | `jlc-extension/` | JLCEDA Pro extension (allow-listed API bridge) packaged into the zip |
-| `test/` | Node-runtime and config-value unit tests |
-| `docs/tools.md` | Generated reference for every MCP tool |
+| `test/` | Node-runtime, config-value and design-rule unit tests |
+| `docs/design-rules.md` | Normative schematic + PCB rule set, with the enforcement mapping |
+| `docs/tools.md` | Generated reference for every MCP tool (`pnpm docs`) |
+| `scripts/gen-tools-doc.mjs` | Regenerates `docs/tools.md` from the built bridge's `tools/list` |
 | `build.mjs` | esbuild bundles + extension zip |
 
 ## Development

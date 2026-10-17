@@ -68,6 +68,24 @@ The extension connects to `ws://127.0.0.1:39009/ws`. Keep JLCEDA Pro running and
 
 In the DSH Web GUI settings page, the **嘉立创EDA MCP** card has a **测试连接** button. It checks the local bridge health endpoint. The MCP tools appear as `mcp__jlceda__eda_status`, `mcp__jlceda__eda_place_component`, `mcp__jlceda__eda_draw_wire`, etc.
 
+## Design rules
+
+The normative schematic + PCB rule set (zoning, placement, net naming, track widths, vias, copper pour,
+DRC, silkscreen, fabrication output, pre-order checklist) lives in **[docs/design-rules.md](docs/design-rules.md)**.
+
+The measurable half is enforced by the tools, not just documented:
+
+| Rule | Enforcement |
+|---|---|
+| Net names | Letters, digits, `_`, `.`, `+`, `-`, max 255 chars. Space, `/`, brackets or CJK are **rejected** by every net-taking tool (`USB_DP/DM` would be split into two nets by the backend). |
+| Track width | `pcb_draw_track` defaults by net role (signal 6 mil / power 16 mil) and **rejects anything below 6 mil (0.15 mm)** unless `force: true`. |
+| Via size | `pcb_draw_via` defaults to a standard drill pair (0.2/0.4 mm signal, 0.3/0.6 mm power); ring = pad − hole must be ≥ 0.20 mm, a hole below 0.2 mm is rejected, below 0.3 mm is warned. |
+| Pour / DRC | `eda_pcb_create_pour` returns the 6/10 mil clearance rule; `eda_design_audit` runs the DRC and the checklist. |
+
+**`eda_design_audit`** is the one-call health check: per-net minimum width vs. role, via geometry, net names,
+board outline, copper pour and PCB DRC, returned as `violations` / `warnings` / `checklist`. Run it before and
+after routing.
+
 ## MCP tools (schematic-first MVP)
 
 | Tool | Purpose |

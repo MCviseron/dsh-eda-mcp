@@ -1,4 +1,25 @@
 /** Order of the announcement section within the tool-guidance band. */
 export const SECTION_ORDER = 211
 
-export const EDA_MCP_GUIDANCE = '本机已安装 dsh-eda-mcp 插件（DSH ↔ 嘉立创EDA专业版 MCP 画图）。它会启动本地 MCP 桥接子进程，并通过嘉立创EDA专业版的扩展（需用户手动导入 dsh-eda-bridge-extension.zip 并开启「允许外部交互」）把 MCP 工具转发到 EDA 画布。工具名形如 mcp__jlceda__eda_place_component、mcp__jlceda__eda_draw_wire。原理图坐标单位为 0.01inch（MCP 坐标 = inch × 100），原点在 A4 图框左下角，y 轴向上；A4 图框范围 x 0~1170、y 0~825，标题栏范围 x 460~1160、y 10~190 必须避让，放置前先调用 eda_get_page_info 获取图框和安全区。角度可选 0/90/180/270。PCB 工具名为 mcp__jlceda__pcb_* 与 mcp__jlceda__eda_pcb_*（两套别名等价），坐标单位为 mil，可查询/移动/删除器件、走线、过孔、区域，画板框、自动布局自动布线、清除布线、导出 Gerber；eda_pcb_auto_route 不传网络时会自动枚举全部网络（本版 EDA 不传网络会全部失败）；区域（pcb_PrimitiveRegion.create）只允许铜层 top 1 / bottom 2 / 内层 15–44 / MULTI 12，板框用 pcb_draw_board_outline 创建（本质是板框层 11 上的一条 pcb_PrimitivePolyline 折线；板框层既不能用 pcb_PrimitiveLine 也不能建区域）。若工具报“JLCEDA bridge extension is not connected”，先调用 eda_status：connectedClients=0 表示 EDA 未连接（确认嘉立创EDA专业版已打开、扩展已导入并开启「允许外部交互」、端口 39009 未被占用）；extensionVersion 与 bridgeVersion 不一致或报 API method not allowed 表示 EDA 里的扩展是旧版，需要重新导入 dsh-eda-bridge-extension.zip 并重启 EDA。PCB 设计流程建议：先用 pcb_draw_board_outline 画闭合板框（板框层 11 一条折线），再用 eda_pcb_get_components/eda_pcb_move_component 做功能分区布局（连接器靠板边、去耦电容紧贴电源引脚、晶振与敏感模拟远离开关电源与大电流回路、发热器件留散热空间），然后 eda_pcb_import_changes 同步网表，再布线：eda_pcb_auto_route 默认是异步的——它立刻返回并让 EDA 后台布线，必须用 eda_pcb_job_status 轮询 running 直到 false（不要用超时等待，也不要加大超时），未布通网络在 hint 里；布线完成后必须跑 eda_pcb_run_drc 检查线路错误，再用 eda_pcb_set_net_track_width 给电源/GND 加宽线宽、用 eda_pcb_create_pour 铺铜。原理图相关 API（sch_Net.*、网表导出）只作用于当前活动文档，若 eda_get_nets 返回空或 eda_export_netlist 返回 null，先用 eda_get_active_document 查看、再用 eda_open_document 把原理图页切到前台。eda_place_net_label_at_pin 会优先建真正的网络标签（method=netLabel）；若返回 method=text 说明该 EDA 版本没有 createNetLabel，文本标签不建立电气连接，务必配合 eda_draw_wire 的 net 参数或电源标识。'
+/**
+ * Injected into every request when `announceToAgent` is on.
+ *
+ * It is a system-prompt section, so it stays short: the normative rule set lives
+ * in `docs/design-rules.md`, and the numeric limits are enforced by the tools
+ * themselves (see `src/bridge/design-rules.ts`), which is why this text names the
+ * behaviour instead of repeating every table.
+ */
+export const EDA_MCP_GUIDANCE = [
+  '本机已安装 dsh-eda-mcp 插件（DSH ↔ 嘉立创EDA专业版 MCP 画图），工具名形如 mcp__jlceda__eda_place_component / mcp__jlceda__pcb_draw_track。',
+  '必须遵守的设计规范：docs/design-rules.md（仓库内），可量化部分由工具强制：',
+  '· 网络名只允许字母、数字、下划线、点、加号、减号，最长 255 字符；出现空格、斜杠、括号、中文会被拒绝（JLC 后端按精确字符串匹配，特殊字符会把网络拆散或丢失）。差分对写成 USB_DP / USB_DM 两个网络，不要写 USB_DP/DM。',
+  '· PCB 走线线宽：普通信号 ≥6mil（0.15mm），器件到去耦电容的分支电源 10mil，主干电源 16mil，>500mA 或 GND 走线 20mil。pcb_draw_track 不传 lineWidth 时按网络角色给默认值，低于 6mil 直接报错（确需用 force:true）。',
+  '· 过孔：常规信号 0.2/0.4mm、电源/GND 0.3/0.6mm、大电流 0.4/0.8mm；焊环 ≥0.2mm 强制，孔径 <0.3mm 会警告（免费打样下限）。pcb_draw_via 不传尺寸时按角色给标准孔径，不要自造非标尺寸。',
+  '· 铺铜：顶层/底层铺 GND 铜，铺铜与其它网络间距 ≥6mil（建议 10mil，在 设计→设计规则 里设置），导出前移除孤岛。',
+  '· 流程：原理图分区（电源/主控/接口/信号处理，左输入右输出、上电源下地，主控居中、去耦与晶振贴芯片、区域用折线框+文本标注）→ 原理图 DRC → 布局传递/布局（安装孔→板边接口→主控→配套器件，去耦电容距引脚 ≤2mm，晶振靠芯片且区域净空，模拟/数字分开）→ 设置线宽线距过孔规则 → 布线 → 铺铜 → PCB DRC → 丝印（高度 ≥1mm、线宽 ≥0.15mm、方向统一不压焊盘）与锁定板框 → 导出 Gerber/BOM/装配文件。',
+  '· 布线前先调 eda_design_audit 做只读体检（线宽/过孔/网络名/板框/铺铜/DRC 逐项给结论），布线后再调一次；eda_pcb_run_drc 是真 DRC，不能跳过。',
+  '绘制细节：原理图坐标为 0.01inch，原点在 A4 图框左下角，y 向上，图框 x 0~1170、y 0~825，标题栏 x 460~1160、y 10~190 必须避让（先 eda_get_page_info）。PCB 坐标为 mil。板框用 pcb_draw_board_outline（板框层 11 的一条 pcb_PrimitivePolyline，线宽默认 10mil）；区域只能用铜层 top/bottom/内层(15–44)/MULTI(12)。',
+  '长任务：eda_pcb_auto_route 默认异步启动（EDA 自己显示进度条），必须用 eda_pcb_job_status 轮询 running 直到 false，不要加大超时；eda_pcb_clear_routing 同理（旧扩展自动分批，按 done 继续调用）。',
+  '原理图 API（sch_Net.*、网表导出）只作用于当前活动文档：返回空时先用 eda_get_active_document 查、eda_open_document 切到原理图页。',
+  '连接问题先调 eda_status：connectedClients=0 表示 EDA 未连接（确认 EDA 已打开、扩展已导入并开启「允许外部交互」、端口 39009 空闲）；extensionVersion 与 bridgeVersion 不一致或报 API method not allowed 表示扩展是旧版，需要重新导入 dsh-eda-bridge-extension.zip 并重启 EDA。',
+].join('\n')
