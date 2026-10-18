@@ -73,6 +73,7 @@ const client = await build({
     'react/jsx-dev-runtime',
     '@deepseek-ai/cordis',
     '@deepseek-ai/dsh-client-ui-slots',
+    '@deepseek-ai/dsh-client-ui-primitives',
     '@deepseek-ai/dsh-client-locale/client',
     '@deepseek-ai/dsh-client-ui-settings/client',
     '@deepseek-ai/dsh-client-ui-renderer/client',

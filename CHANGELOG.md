@@ -2,13 +2,19 @@
 
 ## 未发布（unreleased）
 
-### 设置页：勾选框改为开关
+### 设置页：勾选框改为官方开关组件
 
-- 设置卡片里的三个布尔项（`enabled` / `announceToAgent` / `allowRawApi`）由 `<input type="checkbox">`
-  改为真正的开关控件：`<button role="switch" aria-checked aria-label>`，40×22 轨道 + 18px 圆钮，
-  品牌色（`--dsw-alias-brand-primary`）表示开启、`--dsw-alias-border-l2` 表示关闭，140ms 过渡；
-  键盘 Enter/Space 与 `disabled` 状态沿用原生 button 行为。
-- 顺带去掉硬编码的「开/关」文字：它只有中文，而卡片是中英双语；状态由开关位置 + `aria-checked` 表达。
+- 三个布尔项（`enabled` / `announceToAgent` / `allowRawApi`）由 `<input type="checkbox">` 改为
+  **官方设置页同款开关**：直接复用 `@deepseek-ai/dsh-client-ui-primitives` 导出的 `Switch`
+  （官方 `dsh-client-ui-settings-general` 等页面的布尔开关就是它），因此外观、动效、键盘与无障碍行为
+  与内置设置完全一致，不再自定义。
+- 该包作为 `devDependencies`（取 0.1.5-rc.2 类型/构建）与**可选 peer**（`^0.1.1-rc.2 || ^0.1.5-rc.2 ||
+  ^0.2.0-rc.2 || ^0.2.1-rc.2`）声明；`build.mjs` 的浏览器端 `external` 增加
+  `@deepseek-ai/dsh-client-ui-primitives`，由外壳的模块加载器提供，不打进我们的 bundle。
+- 依据：官方三条线（0.1.1 / 0.1.5 / 0.2.1）都发布了该包，且官方的 `dsh-client-locale`、
+  `dsh-client-ui-settings-general`、插件管理器等客户端在运行时都 `require` 它 —— 也就是说该模块在
+  设置页可用的宿主里必然已被模块加载器注册。
+- 顺带去掉硬编码的「开/关」文字（只有中文，卡片是中英双语），状态由开关位置与 `aria-checked` 表达。
 - 仅客户端产物变化（`lib/client.js`），桥接与 EDA 扩展不变；**刷新/重启 DSH 后生效**。
 
 ## 0.6.1

@@ -1,5 +1,6 @@
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
+import { Switch } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { EdaMcpKey } from './locales.ts'
 import type { SettingsScope } from './settings-scope.ts'
@@ -274,45 +275,16 @@ interface BooleanFieldProps {
 }
 
 function BooleanField(props: BooleanFieldProps) {
-  const on = props.value
+  // The official settings pages use this exact primitive, so plugin toggles and
+  // built-in toggles look and behave identically.
   return (
     <Field label={props.label} hint={props.hint}>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={on}
-        aria-label={props.label}
-        disabled={props.disabled}
-        onClick={() => { props.onChange(!on) }}
-        style={{
-          position: 'relative',
-          flex: '0 0 auto',
-          width: 40,
-          height: 22,
-          padding: 0,
-          border: 'none',
-          borderRadius: 11,
-          background: on ? 'var(--dsw-alias-brand-primary)' : 'var(--dsw-alias-border-l2)',
-          cursor: props.disabled === true ? 'not-allowed' : 'pointer',
-          opacity: props.disabled === true ? 0.4 : 1,
-          transition: 'background 140ms ease',
-        }}
-      >
-        <span
-          aria-hidden="true"
-          style={{
-            position: 'absolute',
-            top: 2,
-            left: on ? 20 : 2,
-            width: 18,
-            height: 18,
-            borderRadius: '50%',
-            background: 'var(--dsw-alias-bg-layer-3, #fff)',
-            boxShadow: '0 1px 2px rgba(0, 0, 0, 0.28)',
-            transition: 'left 140ms ease',
-          }}
-        />
-      </button>
+      <Switch
+        checked={props.value}
+        disabled={props.disabled === true}
+        label={props.label}
+        onChange={(next) => { props.onChange(next) }}
+      />
     </Field>
   )
 }
