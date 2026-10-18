@@ -1,5 +1,16 @@
 # Changelog
 
+## 未发布（unreleased）
+
+### 设置页：勾选框改为开关
+
+- 设置卡片里的三个布尔项（`enabled` / `announceToAgent` / `allowRawApi`）由 `<input type="checkbox">`
+  改为真正的开关控件：`<button role="switch" aria-checked aria-label>`，40×22 轨道 + 18px 圆钮，
+  品牌色（`--dsw-alias-brand-primary`）表示开启、`--dsw-alias-border-l2` 表示关闭，140ms 过渡；
+  键盘 Enter/Space 与 `disabled` 状态沿用原生 button 行为。
+- 顺带去掉硬编码的「开/关」文字：它只有中文，而卡片是中英双语；状态由开关位置 + `aria-checked` 表达。
+- 仅客户端产物变化（`lib/client.js`），桥接与 EDA 扩展不变；**刷新/重启 DSH 后生效**。
+
 ## 0.6.1
 
 ### 发布准备：npm 包元数据、CI 自动发布与可复现构建

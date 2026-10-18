@@ -87,8 +87,15 @@ plugin silently does nothing".
 
 ## Releases
 
+**Tags are created only on the maintainer's explicit request.** Commits and pushes
+to `main` are normal work and land as *unreleased* changes (own heading in
+`CHANGELOG.md`); creating a `v*` tag is a release decision and must be asked for
+first. A pushed `v*` tag also triggers the `publish` workflow, so tagging by
+accident means an accidental npm release.
+
 ```sh
-# 1. bump "version" in package.json, add the changelog heading, run pnpm check
+# only after the maintainer says "tag it"
+# 1. move the unreleased changelog heading to the version, bump package.json, run pnpm check
 # 2. commit, then tag and push
 git commit -am "chore(release): 0.6.2"
 git tag -a v0.6.2 -m "dsh-eda-mcp 0.6.2"
