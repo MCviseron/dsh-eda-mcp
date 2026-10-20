@@ -1,5 +1,40 @@
 # Changelog
 
+## 未发布（unreleased）
+
+### 依据「STM32 最小系统板」真机会话反馈的一批修复（线协议 0.4.2 → **0.4.3**）
+
+> 扩展白名单有新增（PCB 文本 / PCB 焊盘），按规矩**只递增最小位**：需要重新导入 `dsh-eda-bridge-extension-0.4.3.zip`。
+
+#### 新增工具（101 → 104）
+
+| 工具 | 作用 |
+|---|---|
+| `pcb_draw_text` | PCB 丝印/装配/文档层文本（`pcb_PrimitiveString.create`）：引脚功能、接口名、版号、制版信息；默认顶层丝印，字号默认 40mil，禁止压焊盘 |
+| `pcb_draw_mounting_hole` | **非金属化定位孔/槽孔**（`pcb_PrimitivePad.create` + `metallization:false`，`ROUND`/`SLOT`）：不用再靠"挖板框"制造孔 |
+| `eda_capture` | `dmt_EditorControl.getCurrentRenderedAreaImage` → PNG（可写 `outPath` 或用 `inline` 拿 data URL）：用**看图**代替纯坐标推算，顺带能发现越界 |
+
+#### 修掉的实现问题
+
+- **网络标签降级不再塞多余文本**：`createNetLabel` 不可用时，过去会同时画 stub 导线 + 一个纯文本标签，画面上多一层无意义文字。现在默认只保留 stub（`method:"stub"`），需要文字时显式传 `textLabel:true`；单个与批量工具都支持。
+- **覆铜失败不再含糊**：`eda_pcb_create_pour` 现在失败后**自动用最保守参数（solid、不保留孤岛）重试一次**；两次都失败则抛出可操作错误（确认点在板框内、层是铜层，否则手工覆铜，并说明 audit 会持续记为 warn）。返回值新增 `retried`。
+- 补齐 `PCB_LAYERS.multi`（12），定位孔默认落在多层焊盘。
+
+#### 手册与规范（技能第 9b 章 + 故障表 3 条）
+
+新增「PCB 设计与工艺规则」章：
+
+- **布线顺序**：信号线 → 电源线（按角色线宽）→ GND 缝合孔 → 铺 GND 铜；反序铜会把信号围死。
+- **板框**：圆角/倒角用折线近似；定位孔/槽口用 `pcb_draw_mounting_hole`，不要靠挖板框。
+- **丝印层**放引脚功能/接口名/版号/制版信息，压焊盘禁止。
+- **元件方向**：连接器/USB/DC 座插口朝板边，IC pin1 统一朝向，极性元件方向一致，镜像前核对引脚顺序。
+- **晶振**紧贴 MCU 时钟脚、负载电容就近、走线短且等长，下方 `pcb_create_region(ruleType:7)` 禁铺铜；无晶振的板跳过。
+- **地**：信号地与功率地单点 0Ω/磁珠连接（电源层级差大时必做），铺铜分区。
+- **未使用引脚**用 `eda_set_no_connect` 打未连接标记，不留悬空。
+- **位置不只靠算**：`eda_get_page_info` 取真实图框 + `eda_capture` 看图。
+
+故障表补充三条：覆铜失败、坐标越界漏检、以及**纠正**——`dmt_Project.*` 其实在白名单里（10 个方法）；报 `not allowed` 说明装的是旧扩展，去 `eda_status.extensionVersions` 对版本。
+
 ## 0.7.4 — 2026-10-20
 
 发布后补：v0.7.3 已上 npm，但它的两个流水线问题和两处诚实性问题是在 tag 之后才修的，这一版把它们发出去。

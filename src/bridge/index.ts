@@ -18,7 +18,7 @@ import {
 } from './design-rules.ts'
 import { WORKFLOW_GUIDE, WORKFLOW_SUMMARY } from './workflow-guide.ts'
 
-const VERSION = '0.4.2'
+const VERSION = '0.4.3'
 const WS_PORT = Number(process.env.DSH_EDA_MCP_WS_PORT ?? 39009)
 const WS_HOST = '127.0.0.1'
 const ALLOW_RAW_API = (process.env.DSH_EDA_MCP_ALLOW_RAW_API ?? '1') !== '0'
@@ -304,14 +304,17 @@ const TOOLS = [
   { name: 'eda_get_active_document', description: 'Return the document/tab that is currently active (documentType, uuid, tabId, parent project). Most tab-dependent APIs (sch_Net.*, netlist export, DRC) only work when the matching document is active - use eda_open_document to switch.', inputSchema: objectSchema({}) },
   { name: 'eda_open_document', description: 'Open/activate a document tab by uuid (dmt_EditorControl.openDocument). Works for a schematic page or a PCB, so tab-dependent APIs can run.', inputSchema: objectSchema({ documentUuid: { type: 'string' }, splitScreenId: { type: 'string' } }, ['documentUuid']) },
   { name: 'eda_get_net_labels', description: 'List every label-like primitive on the active schematic page: attribute primitives (netlabel/netport/netflag) PLUS plain texts left by the createNetLabel fallback, so they can be audited and deleted. Reports kind/primitiveId/net per entry.', inputSchema: objectSchema({ parentPrimitiveId: { type: 'string' } }) },
-  { name: 'eda_place_net_label', description: 'Place a net label at x/y. The real API (sch_PrimitiveAttribute.createNetLabel) is probed once per session; when the build never answers, a plain TEXT label is placed instead, which carries no electrical meaning and must be paired with a stub wire. Pass probe:true to re-check.', inputSchema: objectSchema({ x: { type: 'number' }, y: { type: 'number' }, net: { type: 'string' }, fontSize: { type: 'number' }, rotation: { type: 'integer', enum: [0, 90, 180, 270] } }, ['x', 'y', 'net']) },
-  { name: 'eda_place_net_labels', description: 'Place many net labels in ONE call (per-pin or by coordinate) and report done/failed per item: a 133-label schematic used to exceed the caller timeout with no progress. items: [{ pinPrimitiveId, net, stubLength?, offsetX?, offsetY? }] or [{ x, y, net, fontSize? }].', inputSchema: objectSchema({ items: { type: 'array', items: { type: 'object', additionalProperties: true } }, probe: { type: 'boolean' }, concurrency: { type: 'integer', minimum: 1, maximum: 8 } }, ['items']) },
+  { name: 'eda_place_net_label', description: 'Place a net label at x/y. The real API (sch_PrimitiveAttribute.createNetLabel) is probed once per session; when the build never answers, a plain TEXT label is placed instead, which carries no electrical meaning and must be paired with a stub wire. Pass probe:true to re-check.', inputSchema: objectSchema({ x: { type: 'number' }, y: { type: 'number' }, net: { type: 'string' }, fontSize: { type: 'number' }, rotation: { type: 'integer', enum: [0, 90, 180, 270] }, probe: { type: 'boolean' }, textLabel: { type: 'boolean' } }, ['x', 'y', 'net']) },
+  { name: 'eda_place_net_labels', description: 'Place many net labels in ONE call (per-pin or by coordinate) and report done/failed per item: a 133-label schematic used to exceed the caller timeout with no progress. items: [{ pinPrimitiveId, net, stubLength?, offsetX?, offsetY? }] or [{ x, y, net, fontSize? }].', inputSchema: objectSchema({ items: { type: 'array', items: { type: 'object', additionalProperties: true } }, probe: { type: 'boolean' }, textLabel: { type: 'boolean' }, concurrency: { type: 'integer', minimum: 1, maximum: 8 } }, ['items']) },
   { name: 'eda_run_drc', description: 'Run schematic DRC with includeVerboseError. On EDA 3.2.186 the app still returns AGGREGATED entries ({type:"warn",count:N}) with no primitiveId/coordinates, so entries are reported as-is and raw keeps the untouched payload; expect counts plus a hint until the app exposes details.', inputSchema: objectSchema({ strict: { type: 'boolean' } }) },
   { name: 'eda_auto_layout', description: 'Run schematic auto-layout (sch_Document.autoLayout). DISABLED by default: automated layout is not used unless the user asks for it. Pass force:true only then.', inputSchema: objectSchema({ uuids: { type: 'array', items: { type: 'string' } }, force: { type: 'boolean' } }) },
   { name: 'eda_auto_route', description: 'Run schematic auto-routing (sch_Document.autoRouting). DISABLED by default: route by hand unless the user explicitly asks. Pass force:true only then.', inputSchema: objectSchema({ uuids: { type: 'array', items: { type: 'string' } }, force: { type: 'boolean' } }) },
   { name: 'eda_export_netlist', description: 'Export the schematic netlist as text (default JLCEDA format). Returns null when no schematic is active - check eda_get_active_document / open the schematic page first.', inputSchema: objectSchema({ type: { type: 'string' } }) },
   { name: 'eda_export_bom', description: 'Export the schematic BOM. csv is decoded from UTF-16 to readable text; xlsx returns a base64 data URL.', inputSchema: objectSchema({ format: { type: 'string', enum: ['csv', 'xlsx'] } }) },
   { name: 'eda_move_component', description: 'Move/rotate/mirror a schematic component (sch_PrimitiveComponent.modify) without deleting and re-placing it, so the designator and value survive.', inputSchema: objectSchema({ primitiveId: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, rotation: { type: 'number' }, mirror: { type: 'boolean' } }, ['primitiveId']) },
+  { name: 'pcb_draw_text', description: 'Put text on a PCB layer - silkscreen by default (3 top silk / 4 bottom silk). Use it for pin functions, board markings, version and fabrication notes; silkscreen text must not cover pads.', inputSchema: objectSchema({ x: { type: 'number' }, y: { type: 'number' }, text: { type: 'string' }, layer: { type: 'string' }, fontSize: { type: 'number' }, lineWidth: { type: 'number' }, rotation: { type: 'number' }, mirror: { type: 'boolean' }, alignMode: { type: 'integer' }, locked: { type: 'boolean' } }, ['x', 'y', 'text']) },
+  { name: 'pcb_draw_mounting_hole', description: 'Place a NON-plated mounting hole or a slot (pcb_PrimitivePad with metallization:false). shape "round" is a drill-sized hole, shape "slot" an oval cut-out. Use this for mounting holes and connector slots instead of hacking the board outline.', inputSchema: objectSchema({ x: { type: 'number' }, y: { type: 'number' }, diameter: { type: 'number' }, shape: { type: 'string', enum: ['round', 'slot'] }, slotLength: { type: 'number' }, rotation: { type: 'number' }, plated: { type: 'boolean' }, layer: { type: 'string' } }, ['x', 'y', 'diameter']) },
+  { name: 'eda_capture', description: 'Render the active document to a PNG (dmt_EditorControl.getCurrentRenderedAreaImage) and write it to outPath or return a data URL. Use it to LOOK at the sheet/board instead of trusting coordinate math; read the file back with the image reader.', inputSchema: objectSchema({ outPath: { type: 'string' }, inline: { type: 'boolean' } }) },
   { name: 'eda_workflow_guide', description: 'Return the schematic working standard: grid-aligned manual placement, signal flow, when net labels/ports are required (a wire net name is overridden by connectivity), net-label fallback behaviour, batch placement and the verification order. Read it before laying out a sheet.', inputSchema: objectSchema({}) },
   { name: 'eda_list_api_methods', description: 'List every API method the connected extension accepts (its allow-list). Call it when eda_api_call answers "API method not allowed".', inputSchema: objectSchema({}) },
   { name: 'eda_delete_primitive', description: 'Delete a schematic primitive by kind and primitive id. Net ports, net flags and net labels are attribute primitives and need kind "netport"/"netflag"/"netlabel"; the text fallback labels are kind "text".', inputSchema: objectSchema({ kind: { type: 'string', enum: ['component', 'wire', 'rectangle', 'circle', 'arc', 'polygon', 'text', 'netport', 'netflag', 'netlabel'] }, primitiveId: { type: 'string' } }, ['kind', 'primitiveId']) },
@@ -649,7 +652,7 @@ async function bboxOf(primitiveIds, timeoutMs) {
 const PCB_LAYERS = {
   top: 1, bottom: 2, topSilkscreen: 3, bottomSilkscreen: 4,
   topSolderMask: 5, bottomSolderMask: 6, topPasteMask: 7, bottomPasteMask: 8,
-  topAssembly: 9, bottomAssembly: 10, boardOutline: 11, document: 13, mechanical: 14,
+  topAssembly: 9, bottomAssembly: 10, boardOutline: 11, multi: 12, document: 13, mechanical: 14,
 }
 
 function resolvePcbLayer(value) {
@@ -1012,6 +1015,11 @@ async function placeNetLabel(net, x, y, fontSize, timeoutMs, options = {}) {
       failure = message
       netLabelSupport = false
     }
+  }
+  // The stub wire (drawn by the *_at_pin callers) already carries the net; a text
+  // label on top of it is pure clutter, so it is opt-in.
+  if (options.textLabel !== true) {
+    return { method: 'stub', net, x, y, created: false, warning: 'createNetLabel is unavailable on this EDA build (' + (failure ?? 'probe already failed this session') + '); the net is carried by the stub wire, and no text label was added (pass textLabel:true if you want one).' }
   }
   const raw = await callExtension('sch_PrimitiveText.create', [x, y, net, 0, null, null, size, false, false, false, 1], timeoutMs)
   const label = summarizePrimitive(raw)
@@ -1797,7 +1805,9 @@ async function executeTool(name, rawArgs, timeoutMs) {
       const x = Number(args.x)
       const y = Number(args.y)
       if (!Number.isFinite(x) || !Number.isFinite(y)) throw new Error('eda_place_net_label requires numeric x/y')
-      return await placeNetLabel(String(args.net), x, y, args.fontSize, timeoutMs, { probe: args.probe === true })
+      return await placeNetLabel(String(args.net), x, y, args.fontSize, timeoutMs, {
+        probe: args.probe === true, textLabel: args.textLabel === true,
+      })
     }
 
     case 'eda_place_net_labels': {
@@ -1814,7 +1824,9 @@ async function executeTool(name, rawArgs, timeoutMs) {
         try {
           const placed = item.pinPrimitiveId !== undefined
             ? await placeAtPin('eda_place_net_label_at_pin', { ...item, net }, timeoutMs)
-            : await placeNetLabel(net, Number(item.x), Number(item.y), item.fontSize, timeoutMs, { probe: args.probe === true })
+            : await placeNetLabel(net, Number(item.x), Number(item.y), item.fontSize, timeoutMs, {
+                probe: args.probe === true, textLabel: args.textLabel === true,
+              })
           return { ok: true, net, ...placed }
         } catch (error) {
           return { ok: false, net, error: error instanceof Error ? error.message : String(error) }
@@ -2177,8 +2189,68 @@ async function executeTool(name, rawArgs, timeoutMs) {
     case 'eda_list_api_methods':
       return { count: ALLOWED_API.size, methods: [...ALLOWED_API].sort() }
 
-    case 'eda_workflow_guide':
-      return { summary: WORKFLOW_SUMMARY, guide: WORKFLOW_GUIDE, autoLayoutAllowed: ALLOW_AUTO_LAYOUT }
+    case 'pcb_draw_text': {
+      const text = String(args.text ?? '')
+      if (text.trim() === '') throw new Error('pcb_draw_text requires text')
+      if (text.length > 200) throw new Error('pcb_draw_text: longer than 200 characters is probably a mistake; split it')
+      const silkLayer = args.layer === undefined ? PCB_LAYERS.topSilkscreen : resolvePcbLayer(args.layer)
+      const fontSize = args.fontSize === undefined ? 40 : Number(args.fontSize)
+      // pcb_PrimitiveString is the PCB text primitive (silkscreen / assembly / document).
+      return await callExtension('pcb_PrimitiveString.create', [
+        silkLayer, Number(args.x), Number(args.y), text, 'Arial', fontSize,
+        args.lineWidth === undefined ? Math.max(6, Math.round(fontSize / 6)) : Number(args.lineWidth),
+        args.alignMode === undefined ? 1 : Number(args.alignMode),
+        args.rotation === undefined ? 0 : Number(args.rotation),
+        false, 0, Boolean(args.mirror ?? false), Boolean(args.locked ?? false),
+      ], timeoutMs)
+    }
+
+    case 'pcb_draw_mounting_hole': {
+      const holeX = Number(args.x)
+      const holeY = Number(args.y)
+      const holeDiameter = Number(args.diameter)
+      if (![holeX, holeY, holeDiameter].every(value => Number.isFinite(value)) || holeDiameter <= 0) {
+        throw new Error('pcb_draw_mounting_hole requires numeric x/y and a positive diameter (mil)')
+      }
+      if (holeDiameter < 20) throw new Error('pcb_draw_mounting_hole: ' + holeDiameter + ' mil is smaller than any drill (>= 20 mil)')
+      const holeShape = String(args.shape ?? 'round')
+      const holeRotation = args.rotation === undefined ? 0 : Number(args.rotation)
+      // Mounting holes are non-plated by default: metallization:false, no net, no pad copper.
+      const metallization = args.plated === true
+      let holeSpec
+      if (holeShape === 'slot') {
+        const slotLength = args.slotLength === undefined ? holeDiameter * 2 : Number(args.slotLength)
+        if (!Number.isFinite(slotLength) || slotLength <= holeDiameter) {
+          throw new Error('pcb_draw_mounting_hole: slotLength must exceed the slot width (diameter)')
+        }
+        holeSpec = ['SLOT', holeDiameter, slotLength]
+      } else {
+        holeSpec = ['ROUND', holeDiameter]
+      }
+      const holeLayer = args.layer === undefined ? PCB_LAYERS.multi : resolvePcbLayer(args.layer)
+      return await callExtension('pcb_PrimitivePad.create', [
+        holeLayer, '', holeX, holeY, holeRotation, undefined, undefined, holeSpec,
+        0, 0, 0, metallization, undefined, undefined, undefined, undefined, false,
+      ], timeoutMs)
+    }
+
+    case 'eda_capture': {
+      // Geometry math is no substitute for looking at the document.
+      const captured = await callExtension('dmt_EditorControl.getCurrentRenderedAreaImage', [], toolTimeout(args, timeoutMs))
+      const dataUrl = typeof captured === 'string'
+        ? captured
+        : (captured !== null && typeof captured === 'object' && typeof captured.dataUrl === 'string' ? captured.dataUrl : '')
+      if (dataUrl === '') throw new Error('eda_capture: the app returned no image (is a document tab active?)')
+      const base64 = dataUrl.includes(',') ? dataUrl.slice(dataUrl.indexOf(',') + 1) : dataUrl
+      const pngBytes = Buffer.from(base64, 'base64')
+      const capturePath = args.outPath === undefined ? '' : String(args.outPath).trim()
+      if (capturePath !== '') {
+        await writeFile(capturePath, pngBytes)
+        return { ok: true, written: capturePath, bytes: pngBytes.length, hint: 'Read the file with the image reader to actually look at the document.' }
+      }
+      if (args.inline === true) return { ok: true, bytes: pngBytes.length, dataUrl }
+      return { ok: true, bytes: pngBytes.length, dataUrlPrefix: dataUrl.slice(0, 32), hint: 'Pass outPath to save a PNG, or inline:true to receive the data URL.' }
+    }
 
     case 'eda_workflow_guide':
       return { summary: WORKFLOW_SUMMARY, guide: WORKFLOW_GUIDE, autoLayoutAllowed: ALLOW_AUTO_LAYOUT }
@@ -2516,16 +2588,35 @@ async function executeTool(name, rawArgs, timeoutMs) {
       assertNetName(String(args.net), 'eda_pcb_create_pour')
       const fill = args.pourFillMethod === undefined ? undefined : String(args.pourFillMethod)
       if (fill !== undefined && fill !== '45grid' && fill !== '90grid' && fill !== 'solid') throw new Error('eda_pcb_create_pour: pourFillMethod must be 45grid, 90grid or solid')
-      const raw = await callExtension('dsh.internal.pourCreate', [
-        String(args.net), layer, buildPolygonSource(points), fill,
-        args.preserveSilos === undefined ? undefined : Boolean(args.preserveSilos),
+      // This build rejects some pour argument combinations ("无法创建覆铜边框图元"),
+      // so a plain-GND pour is retried once with the most conservative settings
+      // before the caller is told to pour by hand.
+      const attempt = async (fillMethod, preserveSilos) => callExtension('dsh.internal.pourCreate', [
+        String(args.net), layer, buildPolygonSource(points), fillMethod,
+        preserveSilos,
         args.pourName === undefined ? undefined : String(args.pourName),
         args.pourPriority === undefined ? undefined : Number(args.pourPriority),
         args.lineWidth === undefined ? undefined : Number(args.lineWidth),
         args.locked === undefined ? undefined : Boolean(args.locked),
       ], timeoutMs)
+      let raw
+      let retried = false
+      try {
+        raw = await attempt(fill, args.preserveSilos === undefined ? undefined : Boolean(args.preserveSilos))
+      } catch (firstFailure) {
+        retried = true
+        try {
+          raw = await attempt('solid', false)
+        } catch (secondFailure) {
+          const detail = secondFailure instanceof Error ? secondFailure.message : String(secondFailure)
+          throw new Error('eda_pcb_create_pour failed twice (first: ' +
+            (firstFailure instanceof Error ? firstFailure.message : String(firstFailure)) + '; retry: ' + detail + '). ' +
+            'This EDA build rejects API pour creation for some polygons: confirm every point is inside the board outline and the layer is copper, ' +
+            'or pour by hand in the PCB editor (覆铜 → GND → top+bottom); eda_design_audit keeps reporting it as a warn until then.')
+        }
+      }
       return {
-        net: String(args.net), layer, layerId: layer, pointCount: points.length / 2, pour: summarizePrimitive(raw),
+        net: String(args.net), layer, layerId: layer, pointCount: points.length / 2, pour: summarizePrimitive(raw), retried,
         rules: {
           clearanceMil: { required: POUR_CLEARANCE_MIN_MIL, recommended: POUR_CLEARANCE_RECOMMENDED_MIL },
           note: 'The pour/clearance value lives in the board design rules, not in this call: set it in 设计 → 设计规则 (recommended ' + POUR_CLEARANCE_RECOMMENDED_MIL + ' mil) and remove islands before exporting.',
