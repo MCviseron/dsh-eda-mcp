@@ -2,6 +2,7 @@
 
 [![check](https://github.com/MCviseron/dsh-eda-mcp/actions/workflows/check.yml/badge.svg)](https://github.com/MCviseron/dsh-eda-mcp/actions/workflows/check.yml)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![npm](https://img.shields.io/npm/v/dsh-eda-mcp.svg)](https://www.npmjs.com/package/dsh-eda-mcp)
 [![node](https://img.shields.io/badge/node-%5E22.19%20%7C%7C%20%3E%3D24-brightgreen.svg)](package.json)
 
 把 DeepSeek Harness (DSH) 连接到 **嘉立创EDA专业版 / EasyEDA Pro**，让 Agent 通过 MCP 工具画原理图。
@@ -37,6 +38,17 @@ DSH 插件启动一个零第三方依赖的桥接子进程。桥接进程通过 
 > 运行时要求：DSH `0.1.1-rc.x`、`0.1.5-rc.x`、`0.2.0-rc.x` 或 `0.2.1-rc.x`（Web GUI 与官方桌面端）。宿主端设置接缝与浏览器端依赖都已按各代适配，同一份构建在任意一代上都能加载。
 >
 > 已验证的代际：`0.1.5-rc.2`（本仓库开发用）与 `0.2.0-rc.2` / `0.2.1-rc.2`（桌面端运行时与 npm `next`）。出现新版本线时跑 `pnpm seam-check next` —— 它会把该代际的接缝包装到临时目录，逐条断言本插件依赖的契约：mcp-client 的 `inject: ['tools']` 与配置键、设置接缝、`systemPrompt.section({ name, order, text })`、`webServer.register({ kind: 'exact' })`、以及 `window.__ModuleLoader__.load({ id, factory })` 包装格式。
+
+### 0. 从 npm 安装（推荐）
+
+```sh
+cd "$DSH_HOME/profiles/<profile>"
+pnpm add dsh-eda-mcp            # 或用 Web GUI 的插件管理器安装
+# 重启 DSH
+```
+
+发布包里已包含 `lib/` 与 `dsh-eda-bridge-extension.zip`，**不需要构建工具链**。扩展仍需手动导入
+嘉立创EDA：zip 位于 `node_modules/dsh-eda-mcp/dsh-eda-bridge-extension.zip`（也可从设置卡片下载）。
 
 ### 1. 安装到 DSH Web profile
 

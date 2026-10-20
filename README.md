@@ -2,6 +2,7 @@
 
 [![check](https://github.com/MCviseron/dsh-eda-mcp/actions/workflows/check.yml/badge.svg)](https://github.com/MCviseron/dsh-eda-mcp/actions/workflows/check.yml)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![npm](https://img.shields.io/npm/v/dsh-eda-mcp.svg)](https://www.npmjs.com/package/dsh-eda-mcp)
 [![node](https://img.shields.io/badge/node-%5E22.19%20%7C%7C%20%3E%3D24-brightgreen.svg)](package.json)
 
 DeepSeek Harness (DSH) plugin that connects DSH to **嘉立创EDA专业版 / EasyEDA Pro** and lets the agent draw schematics through MCP tools.
@@ -26,6 +27,19 @@ The DSH plugin starts a zero-dependency bridge child process. The bridge speaks 
 > Runtime requirement: DSH `0.1.1-rc.x`, `0.1.5-rc.x`, `0.2.0-rc.x` or `0.2.1-rc.x` (Web GUI and the official Desktop). The host settings seam and the browser bundle are adapted to every generation, so one build loads on any of them.
 >
 > Verified generations: `0.1.5-rc.2` (this repo's dev set) and `0.2.0-rc.2` / `0.2.1-rc.2` (desktop runtime and npm `next`). Re-check any new line with `pnpm seam-check next` — it installs that generation's seam packages into a throwaway directory and asserts every contract this plugin probes: mcp-client `inject: ['tools']` and its config keys, the settings faces, `systemPrompt.section({ name, order, text })`, `webServer.register({ kind: 'exact' })`, and the `window.__ModuleLoader__.load({ id, factory })` wrapper.
+
+### 0. From npm (recommended)
+
+```sh
+cd "$DSH_HOME/profiles/<profile>"
+pnpm add dsh-eda-mcp            # or use the plugin manager in the Web GUI
+# restart DSH
+```
+
+The published package already contains `lib/` and `dsh-eda-bridge-extension.zip`, so no build
+toolchain is needed. The extension still has to be imported into JLCEDA Pro by hand — the zip
+sits at `node_modules/dsh-eda-mcp/dsh-eda-bridge-extension.zip` (or download it from the
+settings card).
 
 ### 1. Install into the DSH web profile
 
