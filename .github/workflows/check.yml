@@ -31,6 +31,9 @@ jobs:
       - name: Unit tests
         run: pnpm test
 
+      - name: Contract check
+        run: pnpm contract-check
+
       - name: Build
         run: pnpm build
 

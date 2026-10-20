@@ -94,6 +94,26 @@
 
 - 新增 3 条单测（清单版本格式合法、占位符存在、**不允许**出现硬编码版本常量）。
 - 复发即构建失败，不会再出现「清单与运行时报不同版本」。
+
+### Bug 审计（可执行契约检查 + 两个真 bug）
+
+新增 `scripts/contract-check.mjs`（已接入 `pnpm check` 与 CI），机械校验四类**已经真实发生过**的错配：
+
+| 检查项 | 结果 |
+|---|---|
+| 声明的工具是否都有 handler（自动解析 11 个别名） | 94 声明 / 83 handler + 11 别名（含 `eda_pcb_*` 别名） |
+| 桥接调用的 API 是否都在扩展白名单（`ALLOWED_API` + `FILE_METHODS`） | 87 个调用面 / 160 条白名单 ✓ |
+| 桥接调用的 `dsh.internal.*` 是否都有实现 | 7 个内部助手 ✓ |
+| `objectSchema` 的 required 字段是否真的声明了 | 94 个 schema ✓ |
+
+审计中发现并修掉两个真 bug：
+
+1. **僵尸客户端把调用吞掉**（很可能就是之前那次 `MCP error -32001: Request timed out`）：原先 `firstReadyClient()` 取第一个 `ready` 的 socket，而页面跳转/关闭留下的半开连接仍然 `ready: true`，调用发进黑洞，直到 60 s 超时。现在：每次收到数据都刷新 `lastSeenAt`；**优先最新活跃的客户端**；静默超过 60 s 的只作兜底；超时且是**只读方法**时才换另一个页面重试一次（写操作绝不重试，避免重复副作用）。
+2. **连接状态会撒谎**：`connectedClients`、`waitForExtensionConnection`、healthz 都用原始 `ready` 计数 → 改为活跃客户端计数（`eda_launch` 的「已连上」不再可能被僵尸 socket 骗到）。
+
+另修：`eda_close` 在非 Windows 上把进程数当 `-1`（等于「已关闭」），改为 `pgrep -f` 真实计数。
+
+顺带确认：`src/bridge/index.ts` 里**没有**静默 `catch {}`（0 处）。
 ## 0.6.2
 
 > **已发布到 npm**（`dsh-eda-mcp@0.6.2`，首个版本）。下面 0.6.1 的内容从未发布过，同批一起带上。

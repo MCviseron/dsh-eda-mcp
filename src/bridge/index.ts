@@ -410,6 +410,9 @@ class WsConnection {
     this.socket.destroy()
   }
   handleData(chunk) {
+    // Liveness: a page that navigates away leaves a half-open socket that still
+    // looks ready, so every timestamp counts, not just pongs.
+    this.lastSeenAt = Date.now()
     this.buffer = Buffer.concat([this.buffer, chunk])
     for (;;) {
       const frame = parseFrame(this.buffer)
@@ -468,16 +471,25 @@ async function pcbComponentIds(timeoutMs) {
 }
 let nextCallId = 1
 
-function firstReadyClient() {
-  for (const client of clients) if (client.ready) return client
-  return undefined
+/** A socket that has been silent this long is treated as dead even if it never closed. */
+const CLIENT_STALE_MS = 60000
+
+/** Ready clients, freshest first. Stale sockets are used only as a last resort. */
+function pickClients() {
+  const now = Date.now()
+  const ready = [...clients].filter(client => client.ready)
+  const fresh = ready.filter(client => now - (client.lastSeenAt ?? 0) < CLIENT_STALE_MS)
+  const pool = fresh.length > 0 ? fresh : ready
+  return pool.sort((left, right) => (right.lastSeenAt ?? 0) - (left.lastSeenAt ?? 0))
 }
 
-function callExtension(method, args, timeoutMs) {
-  const client = firstReadyClient()
-  if (client === undefined) {
-    return Promise.reject(new Error('JLCEDA bridge extension is not connected. Open JLCEDA Pro, import dsh-eda-bridge-extension.zip, enable "Allow interactive with external", and keep a schematic or PCB page open.'))
-  }
+/** Read-only calls may be repeated on another page; a write must never be. */
+function isIdempotentRead(method) {
+  const fn = method.slice(method.lastIndexOf('.') + 1).toLowerCase()
+  return fn.startsWith('get') || fn.startsWith('is') || fn.startsWith('has') || fn.startsWith('list') || fn.startsWith('search')
+}
+
+function sendToClient(client, method, args, timeoutMs) {
   const id = nextCallId++
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
@@ -487,6 +499,27 @@ function callExtension(method, args, timeoutMs) {
     pendingCalls.set(id, { resolve, reject, timer })
     client.sendText(JSON.stringify({ id, method, args }))
   })
+}
+
+async function callExtension(method, args, timeoutMs) {
+  const pool = pickClients()
+  if (pool.length === 0) {
+    throw new Error('JLCEDA bridge extension is not connected. Open JLCEDA Pro, import dsh-eda-bridge-extension.zip, enable "Allow interactive with external", and keep a schematic or PCB page open.')
+  }
+  const deadline = Date.now() + timeoutMs
+  let lastError
+  for (const client of pool) {
+    const remaining = deadline - Date.now()
+    if (remaining <= 100) break
+    try {
+      return await sendToClient(client, method, args, remaining)
+    } catch (error) {
+      lastError = error
+      // A different error means the page answered; retrying would only repeat it.
+      if (!isIdempotentRead(method) || !/timed out/.test(String((error as Error)?.message))) throw error
+    }
+  }
+  throw lastError ?? new Error('JLCEDA bridge call timed out after ' + timeoutMs + 'ms: ' + method)
 }
 
 function asRecord(value) {
@@ -831,7 +864,15 @@ function launchProbe() {
 
 /** How many processes currently run that image name (Windows tasklist). */
 function processCountByName(imageName) {
-  if (process.platform !== 'win32') return -1
+  if (process.platform !== 'win32') {
+    // pgrep exits non-zero when nothing matches, which is the "closed" case.
+    try {
+      const out = execFileSync('pgrep', ['-f', imageName], { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] })
+      return out.split(/\r?\n/).filter(line => line.trim() !== '').length
+    } catch {
+      return 0
+    }
+  }
   try {
     const out = execFileSync('tasklist', ['/FI', 'IMAGENAME eq ' + imageName, '/FO', 'CSV', '/NH'], {
       encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'],
@@ -856,7 +897,7 @@ function terminateByName(imageName, force) {
 /** Wait (bounded) until at least one EDA extension reports ready. */
 async function waitForExtensionConnection(timeoutMs) {
   const started = Date.now()
-  const readyCount = () => [...clients].filter(client => client.ready).length
+  const readyCount = () => pickClients().length
   while (Date.now() - started < timeoutMs) {
     if (readyCount() > 0) return { connected: true, clients: readyCount(), waitedMs: Date.now() - started }
     await new Promise(resolve => setTimeout(resolve, 500))
@@ -1001,7 +1042,7 @@ async function executeTool(name, rawArgs, timeoutMs) {
 
   switch (tool) {
     case 'eda_status': {
-      const ready = [...clients].filter(client => client.ready)
+      const ready = pickClients()
       // Every EDA page keeps its own socket, so several clients can disagree: list
       // them all and judge the bridge as outdated when ANY of them is not on VERSION.
       const versions = ready.map(client => (typeof client.extensionVersion === 'string' ? client.extensionVersion : null))
@@ -1096,7 +1137,7 @@ async function executeTool(name, rawArgs, timeoutMs) {
           error = error ?? (failure instanceof Error ? failure.message : String(failure))
         }
       }
-      const connected = [...clients].filter(client => client.ready).length
+      const connected = pickClients().length
       return {
         ok: remaining <= 0,
         closed: remaining <= 0,
@@ -1224,7 +1265,7 @@ async function executeTool(name, rawArgs, timeoutMs) {
         ].join(' '))
       }
 
-      const alreadyConnected = [...clients].filter(client => client.ready).length
+      const alreadyConnected = pickClients().length
       const project = args.project === undefined ? undefined : String(args.project)
       if (project !== undefined && project !== '') {
         try { if (!statSync(project).isFile()) throw new Error('not a file') } catch {
@@ -2196,7 +2237,7 @@ const server = createServer((req, res) => {
   const url = new URL(req.url ?? '/', 'http://127.0.0.1')
   if (req.method === 'GET' && url.pathname === '/healthz') {
     res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
-    res.end(JSON.stringify({ status: 'ok', version: VERSION, clients: [...clients].filter(client => client.ready).length }))
+    res.end(JSON.stringify({ status: 'ok', version: VERSION, clients: pickClients().length }))
     return
   }
   res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' })
