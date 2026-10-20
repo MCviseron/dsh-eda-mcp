@@ -10,6 +10,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import type { Socket } from 'node:net'
 import { createInterface } from 'node:readline'
 import { buildLaunchArgs, buildLaunchScript, decodeRegistryOutput, resolveExecutable, type LaunchProbe } from './eda-launch.ts'
+import { runNetlistErc } from './netlist-erc.ts'
 import {
   ANNULUS_MIN_MM, BOARD_OUTLINE_WIDTH_MIL, MIN_TRACK_WIDTH_MIL, POUR_CLEARANCE_MIN_MIL,
   POUR_CLEARANCE_RECOMMENDED_MIL, SILKSCREEN_HEIGHT_MIN_MM, SILKSCREEN_WIDTH_MIN_MM,
@@ -314,6 +315,7 @@ const TOOLS = [
   { name: 'eda_move_component', description: 'Move/rotate/mirror a schematic component (sch_PrimitiveComponent.modify) without deleting and re-placing it, so the designator and value survive.', inputSchema: objectSchema({ primitiveId: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, rotation: { type: 'number' }, mirror: { type: 'boolean' } }, ['primitiveId']) },
   { name: 'pcb_draw_text', description: 'Put text on a PCB layer - silkscreen by default (3 top silk / 4 bottom silk). Use it for pin functions, board markings, version and fabrication notes; silkscreen text must not cover pads.', inputSchema: objectSchema({ x: { type: 'number' }, y: { type: 'number' }, text: { type: 'string' }, layer: { type: 'string' }, fontSize: { type: 'number' }, lineWidth: { type: 'number' }, rotation: { type: 'number' }, mirror: { type: 'boolean' }, alignMode: { type: 'integer' }, locked: { type: 'boolean' } }, ['x', 'y', 'text']) },
   { name: 'pcb_draw_mounting_hole', description: 'Place a NON-plated mounting hole or a slot (pcb_PrimitivePad with metallization:false). shape "round" is a drill-sized hole, shape "slot" an oval cut-out. Use this for mounting holes and connector slots instead of hacking the board outline.', inputSchema: objectSchema({ x: { type: 'number' }, y: { type: 'number' }, diameter: { type: 'number' }, shape: { type: 'string', enum: ['round', 'slot'] }, slotLength: { type: 'number' }, rotation: { type: 'number' }, plated: { type: 'boolean' }, annulus: { type: 'number' }, padNumber: { type: 'string' }, layer: { type: 'string' } }, ['x', 'y', 'diameter']) },
+  { name: 'eda_netlist_erc', description: 'Read-only electrical smoke test over the schematic NETLIST (no application DRC needed): duplicate designators, unconnected pins, single-endpoint nets, shorted parts, power rails and decoupling, USB D+/D- pair, crystal (two nets + load caps + reaches the MCU), reset RC, BOOT pull resistor, Type-C CC pull-downs. DRC can be clean while the circuit is still wrong; these failures all show up in the netlist. Pass includeOk:true to see passing checks too.', inputSchema: objectSchema({ includeOk: { type: 'boolean' } }) },
   { name: 'eda_pcb_canvas_origin', description: 'Read (or align) the PCB canvas origin and convert points between the two coordinate spaces. JLCEDA displays CANVAS coordinates in its UI but every API takes DATA coordinates; the two differ by this offset, so a coordinate read off the screen will land somewhere else unless you convert or align. align:true calls setCanvasOrigin(0,0) so the display matches the API.', inputSchema: objectSchema({ align: { type: 'boolean' }, offsetX: { type: 'number' }, offsetY: { type: 'number' }, point: { type: 'object', additionalProperties: true } }) },
   { name: 'eda_capture', description: 'Render the active document to a PNG (dmt_EditorControl.getCurrentRenderedAreaImage) and write it to outPath or return a data URL. Use it to LOOK at the sheet/board instead of trusting coordinate math. The PNG is a scratch file: read it, then call eda_capture({cleanup:true}) to delete every capture path this session wrote.', inputSchema: objectSchema({ outPath: { type: 'string' }, inline: { type: 'boolean' }, cleanup: { type: 'boolean' } }) },
   { name: 'eda_workflow_guide', description: 'Return the schematic working standard: grid-aligned manual placement, signal flow, when net labels/ports are required (a wire net name is overridden by connectivity), net-label fallback behaviour, batch placement and the verification order. Read it before laying out a sheet.', inputSchema: objectSchema({}) },
@@ -738,6 +740,16 @@ function resolveRegionLayer(value, tool) {
 
 // TPCB_PolygonSourceArray: [x1, y1, 'L', x2, y2, x3, y3, ...]; the first and
 // last point are joined automatically, so the closing point must not repeat.
+/** Netlist as a parsed object, for tools that inspect it (eda_netlist_erc). */
+async function fetchParsedNetlist(timeoutMs) {
+  const payload = await callExtension('sch_ManufactureData.getNetlistFile', [undefined, undefined], timeoutMs)
+  const text = typeof payload === 'string'
+    ? payload
+    : (payload !== null && typeof payload === 'object' && typeof payload.text === 'string' ? payload.text : undefined)
+  if (text === undefined) return null
+  try { return JSON.parse(text) } catch { return null }
+}
+
 function buildPolygonSource(points) {
   const source = [points[0], points[1], 'L']
   for (let i = 2; i < points.length; i += 2) source.push(points[i], points[i + 1])
@@ -2301,6 +2313,22 @@ async function executeTool(name, rawArgs, timeoutMs) {
         holeLayer, String(args.padNumber ?? ''), holeX, holeY, holeRotation, padShape, undefined, holeSpec,
         0, 0, 0, metallization, undefined, undefined, undefined, undefined, false,
       ], timeoutMs)
+    }
+
+    case 'eda_netlist_erc': {
+      const netlistData = await fetchParsedNetlist(timeoutMs)
+      const report = runNetlistErc(netlistData)
+      const listed = args.includeOk === true ? report.checks : report.checks.filter(check => check.status !== 'pass')
+      return {
+        ok: report.ok,
+        counts: report.counts,
+        componentCount: report.componentCount,
+        netCount: report.netCount,
+        checks: listed,
+        hint: report.ok
+          ? 'No electrical failure found. This is a smoke test, not a simulation: run eda_run_drc and review the schematic as well.'
+          : 'Fix the failing checks before routing; eda_run_drc on this build only returns aggregated counts, so this list is the actionable signal.',
+      }
     }
 
     case 'eda_pcb_canvas_origin': {

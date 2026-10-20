@@ -1,6 +1,18 @@
 # Changelog
 
 ## 未发布（unreleased）
+### 新增 `eda_netlist_erc`：网表级电气烟雾测试（工具 105 → **106**）
+
+外部对照（HWE-Bench 主张"执行驱动验证"、6 模型×嘉立创 EDA 横评的翻车点、KiCad sch-api #104 的标签落点问题）指向同一件事：**DRC 通过 ≠ 电路正确**。原理图 DRC 在本机构建上还只回聚合计数，所以新增一个不依赖应用 DRC 的只读检查。
+
+`eda_netlist_erc` 直接读网表（`components[key].pinInfoMap[].{name,number,net}`），纯函数实现（`src/bridge/netlist-erc.ts`），12 项检查：位号重复(fail)、悬空脚(warn)、单端点网络(fail)、无地(fail)/地端点过少(warn)、器件全脚同网(fail)、IC 电源脚悬空(fail)、电源轨无去耦电容(warn)、USB 仅 D+ 或仅 D-(fail)、晶振两脚同网/缺负载电容/不通 MCU(warn)、复位缺 RC(warn)、BOOT 无上下拉(warn)、Type-C CC 缺 5.1k 下拉(warn)。
+
+**真机验证**（29 器件 / 46 网络的 STM32 最小系统板）：12 项全部执行，**11 pass / 0 fail / 1 warn**，唯一告警是 USB-C 的 SBU1/SBU2 未接（正常工作状态）——没有误报。
+
+新增单测 `test/netlist-erc.test.ts`（17 条断言：健康设计全过、单端点失败、器件短路、USB 缺 D-、缺去耦、晶振缺电容、悬空脚、位号重复、空网表不崩），已加入 `pnpm test` 链（现 7 套）。
+
+技能新增第 9c 章「外部对照：AI 画板已知失败模式」，标注来源与逐条判据；系统提示同步一行：布线/投板前必须跑 `eda_netlist_erc`。
+
 ### 对照官方文档全面排查（线协议 0.4.5 → **0.4.6**）
 
 依据：本地安装的 `api-types.d.ts`（pro-api 0.3.18.0bc12bb0，127 类 / 1579 方法）、`easyeda/extension-dev-skill` 的 38 份配方、`easyeda-pro-file-format-v2` 的文件格式文档、`prodocs` 的 API 参考。

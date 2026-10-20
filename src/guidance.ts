@@ -22,6 +22,7 @@ export const EDA_MCP_GUIDANCE = [
   '长任务：eda_pcb_auto_route 默认异步启动（EDA 自己显示进度条），必须用 eda_pcb_job_status 轮询 running 直到 false，不要加大超时；eda_pcb_clear_routing 同理（旧扩展自动分批，按 done 继续调用）。',
   '原理图 API（sch_Net.*、网表导出）只作用于当前活动文档：返回空时先用 eda_get_active_document 查、eda_open_document 切到原理图页。',
   '生效范围（改动不热更新）：插件源码 src/ 改动要 node build.mjs 后重启 DSH，当前会话不会生效；扩展 jlc-extension/ 改动要重新导入 dsh-eda-bridge-extension-<版本>.zip 并重启嘉立创EDA（eda_status 的 extensionVersions 必须与 bridgeVersion 一致）；只有重启桥接子进程能由 agent 自己做（POST /api/dsh-eda-mcp/reconnect）。排查出口：/api/dsh-eda-mcp/diagnostics 的 clientStartupError / skills / bridgeHealth。扩展版本只递增最小位。',
+  '电气正确性不要指望 DRC：原理图 DRC 在这台构建上只回聚合计数。布线/投板前跑 eda_netlist_erc（网表级只读烟雾测试：位号重复、悬空脚、单端点网络、器件短路、电源脚/去耦、USB D± 成对、晶振负载电容、复位 RC、BOOT 下拉、Type-C CC 下拉），它挡住的是"DRC 干净但电路错"这一类事故（公开横评里 AI 画板的典型翻车点）。',
   '原理图工作规范（默认手工，禁止为省事用自动布局/自动布线）：按 10 单位栅格对齐；信号左→右、电源在上、地在下；器件间留 ≥20 单位走线与标签空间；先 eda_get_page_info 看安全区再摆位；摆完用 eda_get_components 检查包围盒不重叠。eda_auto_layout / eda_auto_route 默认被拒绝（需 force:true 且设置里放行），仅当用户明确要求时使用；版面检查优先"导出图片自行识别"而不是让 EDA 重排。',
   '跨区域同名网络必须用 eda_place_net_port / 网络标签：eda_draw_wire 的 net 只对悬空导线有效，导线一旦接触引脚，EDA 会按连通性重算网络名（实测 TESTNET 被并入 LED_A），所以"同名导线 = 同名网络"不成立。',
   '网络标签：eda_place_net_label 先真实调 createNetLabel，该 API 在 3.2.186 上不响应 → 探测结论按会话缓存后自动降级为纯文本标签（无电气语义，靠 stub 导线承载网络）；批量务必用 eda_place_net_labels 一次调用，不要串行上百次（会打爆 run_code 超时且没有进度）。标签可枚举/清理：eda_get_net_labels + eda_delete_primitive(kind: netlabel|netport|netflag|text)。',

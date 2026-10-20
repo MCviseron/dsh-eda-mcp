@@ -26,7 +26,7 @@ report('skill is model and user invocable', candidate.invocation.modelInvocable 
 report('description states a trigger', candidate.description.includes('TRIGGER when'))
 report('description states a non-trigger', candidate.description.includes('DO NOT TRIGGER'))
 report('rank beats the user root (400)', candidate.rank > 400, String(candidate.rank))
-report('playbook has every section (13 base + PCB design rules)', SKILL_SECTIONS.length === 14, String(SKILL_SECTIONS.length))
+report('playbook has every section (13 base + PCB rules + external failure modes)', SKILL_SECTIONS.length === 15, String(SKILL_SECTIONS.length))
 report('playbook is a real manual, not a summary', body.length > 6000 && skillLineCount() > 120, body.length + ' chars / ' + skillLineCount() + ' lines')
 
 const definition = await provider.get(candidate)
