@@ -200,6 +200,7 @@ function dshEdaMcpStatus() {
     'pcb_PrimitiveRegion.modify',
     'pcb_PrimitiveRegion.delete',
     'pcb_MathPolygon.createPolygon',
+    'pcb_MathPolygon.createComplexPolygon',
     'pcb_PrimitiveString.create',
     'pcb_PrimitiveString.get',
     'pcb_PrimitiveString.getAll',
@@ -447,8 +448,14 @@ function dshEdaMcpStatus() {
       if (typeof eda === 'undefined' || !eda.pcb_MathPolygon || !eda.pcb_PrimitivePour) {
         throw new Error('dsh.internal.pourCreate: PCB pour APIs are not available');
       }
-      var pourPolygon = eda.pcb_MathPolygon.createPolygon(pourArgs[2]);
-      if (!pourPolygon) throw new Error('dsh.internal.pourCreate: invalid polygon source ' + JSON.stringify(pourArgs[2]));
+      // A pour is a complex polygon (an outer ring plus optional holes). Passing a
+      // single IPCB_Polygon made the app answer 无法创建覆铜边框图元; createComplexPolygon is the documented entry point.
+      var pourSource = pourArgs[2];
+      var pourPolygon = eda.pcb_MathPolygon.createComplexPolygon
+        ? eda.pcb_MathPolygon.createComplexPolygon(Array.isArray(pourSource) && Array.isArray(pourSource[0]) ? pourSource : [pourSource])
+        : undefined;
+      if (!pourPolygon) pourPolygon = eda.pcb_MathPolygon.createPolygon(pourSource);
+      if (!pourPolygon) throw new Error('dsh.internal.pourCreate: invalid polygon source ' + JSON.stringify(pourSource));
       var pour = await eda.pcb_PrimitivePour.create(
         optional(pourArgs[0]), optional(pourArgs[1]), pourPolygon, optional(pourArgs[3]), optional(pourArgs[4]),
         optional(pourArgs[5]), optional(pourArgs[6]), optional(pourArgs[7]), optional(pourArgs[8])
@@ -456,7 +463,15 @@ function dshEdaMcpStatus() {
       if (!pour) {
         throw new Error('dsh.internal.pourCreate: pcb_PrimitivePour.create returned undefined (net/layer/polygon rejected; copper layers only)');
       }
-      return toJsonable(pour);
+      // A pour border alone leaves no copper: the region has to be rebuilt for the
+      // fill (and the clearance against other nets) to be computed.
+      var rebuilt = false;
+      if (pour && typeof pour.rebuildCopperRegion === 'function') {
+        try { await pour.rebuildCopperRegion(); rebuilt = true; } catch (error) { rebuilt = false; }
+      }
+      var pourJson = toJsonable(pour);
+      if (pourJson && typeof pourJson === 'object') pourJson.rebuilt = rebuilt;
+      return pourJson;
     }
     // Internal helper: long-running jobs (auto-routing / auto-layout) are started
     // without awaiting so the MCP call returns immediately; the operation keeps

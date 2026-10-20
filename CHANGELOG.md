@@ -1,6 +1,19 @@
 # Changelog
 
 ## 未发布（unreleased）
+### 覆铜：从"应用限制"改判为"我用错了 API"（线协议 0.4.4 → **0.4.5**）
+
+我上一轮结论写错了：不是 EDA 不支持，而是**我用单多边形去建覆铜**。查官方文档后确认两点：
+
+1. 覆铜边框的几何是**复杂多边形**（外环 + 可选孔），API 入口是 `pcb_MathPolygon.createComplexPolygon`；我一直在用 `createPolygon`（单多边形）。
+2. 建完边框必须调 `IPCB_PrimitivePour.rebuildCopperRegion()` 才会**真正计算铜皮**，否则只有边框没有铜。
+
+修复：扩展新增白名单 `pcb_MathPolygon.createComplexPolygon`；`dsh.internal.pourCreate` 改为先 `createComplexPolygon`（必要时降级 `createPolygon`），创建成功后调用 `rebuildCopperRegion()`，返回值带 `rebuilt` 标记。
+
+依据来源（官方）：`easyeda/extension-dev-skill` 的 `recipes/pcb_primitives_bindraw.md`（Pour = 覆铜边框、Poured = 只读填充）、`easyeda-pro-file-format-v2` 的 `docs/en/pcb/polygon-system/pour.md`（POUR 记录结构与复杂多边形/填充类型）、`prodocs` 的 `PCB_PrimitivePour.create`、`IPCB_PrimitivePour.rebuildCopperRegion`。
+
+另修正一处我自己的误读：我曾据 `names.slice(0,20)` 断言"板上没有 GND 网络"，实际 46 个网络里有 `GND`（在第 44 位）——网络名不是覆铜失败的原因。
+
 ### 真机验证（扩展 0.4.4）修复的两个问题与三条实测结论
 
 **修掉（这次真机才暴露）**
