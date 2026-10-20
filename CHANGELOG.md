@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.7.4 — 2026-10-20
+
+发布后补：v0.7.3 已上 npm，但它的两个流水线问题和两处诚实性问题是在 tag 之后才修的，这一版把它们发出去。
+
+### 诚实性修复（宿主侧，线协议不变 = 0.4.2，**无需重导扩展**）
+
+- **`opened` 必须表示"目标文档真的被激活了"**：导入新扩展会重启 EDA，应用回到 Start Page（`tab_page1`），旧实现靠"标签数 > 1"猜，于是又谎报 `opened: true`。现在要求 `activeDocumentUuid === documentUuid`，新增 `activated` 字段，提示里直接写"先 `eda_open_project` 再开文档"。
+- **空 BOM 不再装成功**：PCB 活动时 `getBomFile` 返回 null，原来给 `{bom:"", encoding:"unknown"}`，看着像"BOM 是空的"。现在直接报错并给出修复动作（切到原理图页）。
+
+### CI 两处真 bug（这就是 v0.7.3 一度没上 npm 的原因）
+
+- **`publish.yml` 的守卫误杀自己的文档字符串**：守卫用 `Select-String -Path lib/*.js -Pattern 'node_modules/'`，而它命中我写进技能第 12 章的正确文案（`node_modules/dsh-eda-mcp/dsh-eda-bridge-extension-<版本>.zip`），于是 `exit 1`，`Publish` 步骤从未执行。已抽成 `scripts/guard-bundle-paths.mjs`（`pnpm guard:bundle`），只认**绝对路径形态**的构建机泄露（`D:/…/node_modules`、`/home/`、`/Users/`、`/root/`、`node_modules/.pnpm`），两个 workflow 共用；并做了负向验证（注入泄露 → exit 1 并报出文件与行号）。
+- **`check.yml` 上传已被删除的别名 zip**：0.7.0 起构建只产出 `dsh-eda-bridge-extension-<版本>.zip`，而 workflow 仍指向 `dsh-eda-bridge-extension.zip` 且 `if-no-files-found: error`，导致 check 一直红。改为版本号通配，并把 `guard:bundle` 加进 check。
+- **防复发**：`test/seams.test.ts` 新增 6 条断言 —— check.yml 必须用版本号通配、两个 workflow 都必须调用共享守卫、不得内联重写守卫、`guard:bundle` 必须在 `pnpm check` 链里。
+
+### 仓库卫生
+
+- `.tmp-*` 加入 `.gitignore`，并删掉之前误提交的临时文件（提交信息临时文件曾随 `git add -A` 进库）。
+
+### 门禁
+
+`pnpm check` = typecheck → 6 套单测（含 seams 新增断言）→ `contract-check` → `build` → **`guard:bundle`**；本次发布前全部复跑通过。
+
 ## 0.7.3 — 2026-10-20
 
 本版把原理图与 PCB 两侧都跑了一遍真机，修掉 5 个真问题，并把「三层改动的生效范围」写进随包文档，避免新会话无从下手。
