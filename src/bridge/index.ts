@@ -6,6 +6,7 @@ import { readFile } from 'node:fs/promises'
 import { mkdir, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import type { Socket } from 'node:net'
 import { createInterface } from 'node:readline'
@@ -13,6 +14,7 @@ import { buildLaunchArgs, buildLaunchScript, decodeRegistryOutput, resolveExecut
 import { buildIntake } from './design-intake.ts'
 import { auditSchematicGeometry } from './schematic-audit.ts'
 import { runNetlistErc } from './netlist-erc.ts'
+import { compareDigest, extensionDownloadUrl, extensionZipName, sha256Of } from './extension-package.ts'
 import {
   ANNULUS_MIN_MM, BOARD_OUTLINE_WIDTH_MIL, MIN_TRACK_WIDTH_MIL, POUR_CLEARANCE_MIN_MIL,
   POUR_CLEARANCE_RECOMMENDED_MIL, SILKSCREEN_HEIGHT_MIN_MM, SILKSCREEN_WIDTH_MIN_MM,
@@ -324,6 +326,7 @@ const TOOLS = [
   { name: 'eda_pcb_canvas_origin', description: 'Read (or align) the PCB canvas origin and convert points between the two coordinate spaces. JLCEDA displays CANVAS coordinates in its UI but every API takes DATA coordinates; the two differ by this offset, so a coordinate read off the screen will land somewhere else unless you convert or align. align:true calls setCanvasOrigin(0,0) so the display matches the API.', inputSchema: objectSchema({ align: { type: 'boolean' }, offsetX: { type: 'number' }, offsetY: { type: 'number' }, point: { type: 'object', additionalProperties: true } }) },
   { name: 'eda_capture', description: 'Render the active document to a PNG (dmt_EditorControl.getCurrentRenderedAreaImage) and write it to outPath or return a data URL. Use it to LOOK at the sheet/board instead of trusting coordinate math. The PNG is a scratch file: read it, then call eda_capture({cleanup:true}) to delete every capture path this session wrote.', inputSchema: objectSchema({ outPath: { type: 'string' }, inline: { type: 'boolean' }, cleanup: { type: 'boolean' } }) },
   { name: 'eda_workflow_guide', description: 'Return the schematic working standard: grid-aligned manual placement, signal flow, when net labels/ports are required (a wire net name is overridden by connectivity), net-label fallback behaviour, batch placement and the verification order. Read it before laying out a sheet.', inputSchema: objectSchema({}) },
+  { name: 'eda_extension_package', description: 'Report the extension zip this plugin ships (absolute path, bytes, sha256) and, with download:true, fetch the copy served at the download base URL and compare the two byte for byte. On a match the served file is saved to outDir (default: the temp directory) so it can be imported into JLCEDA Pro; on a mismatch nothing is written and the tool says to re-upload. base defaults to DSH_EDA_EXTENSION_BASE or the project download server.', inputSchema: objectSchema({ download: { type: 'boolean' }, outDir: { type: 'string' }, base: { type: 'string' } }, []) },
   { name: 'eda_list_api_methods', description: 'Ask the CONNECTED EXTENSION for the API methods it accepts right now (dsh.internal.listApiMethods) and report source/version/counts. Falls back to the bridge copy with stale:true only when the extension is an older zip. Use refresh:true to re-query.', inputSchema: objectSchema({ refresh: { type: 'boolean' } }) },
   { name: 'eda_delete_primitive', description: 'Delete a schematic primitive by kind and primitive id. Net ports, net flags and net labels are attribute primitives and need kind "netport"/"netflag"/"netlabel"; the text fallback labels are kind "text".', inputSchema: objectSchema({ kind: { type: 'string', enum: ['component', 'wire', 'rectangle', 'circle', 'arc', 'polygon', 'text', 'netport', 'netflag', 'netlabel'] }, primitiveId: { type: 'string' } }, ['kind', 'primitiveId']) },
   { name: 'eda_create_board', description: 'Create a board linking a schematic and a PCB (dmt_Board.createBoard).', inputSchema: objectSchema({ schematicUuid: { type: 'string' }, pcbUuid: { type: 'string' } }) },
@@ -788,6 +791,15 @@ function buildPolygonSource(points) {
   const source = [points[0], points[1], 'L']
   for (let i = 2; i < points.length; i += 2) source.push(points[i], points[i + 1])
   return source
+}
+
+
+/**
+ * Directory that holds the packaged artifacts: the bridge runs from <package>/lib/bridge.mjs,
+ * so its grandparent is the package root both for a published install and for the repo.
+ */
+function packageRoot(): string {
+  return fileURLToPath(new URL('../', import.meta.url))
 }
 
 function requireFlatPoints(value, tool) {
@@ -2362,6 +2374,69 @@ async function executeTool(name, rawArgs, timeoutMs) {
         rotation: args.rotation === undefined ? undefined : Number(args.rotation),
         mirror: args.mirror === undefined ? undefined : Boolean(args.mirror),
       }], timeoutMs)
+
+    case 'eda_extension_package': {
+      // Two copies of the same artifact exist: the zip inside this npm package and the one
+      // on the download server. Nobody could tell whether they match, so this tool reports
+      // the local digest and, with download:true, fetches the served copy and compares the
+      // two byte for byte. A mismatch is never written to disk.
+      const manifestCandidates = [
+        join(packageRoot(), 'jlc-extension', 'extension.json'),
+        join(packageRoot(), 'dsh-eda-bridge-extension.zip'),
+      ]
+      let version = VERSION
+      try {
+        const manifest = JSON.parse(await readFile(manifestCandidates[0], 'utf8')) as { version?: string }
+        if (typeof manifest.version === 'string' && manifest.version !== '') version = manifest.version
+      } catch { /* keep the bridge VERSION */ }
+      const localCandidates = [
+        join(packageRoot(), extensionZipName(version)),
+        join(packageRoot(), 'dsh-eda-bridge-extension.zip'),
+      ]
+      let localPath = ''
+      for (const candidate of localCandidates) {
+        if (existsSync(candidate)) { localPath = candidate; break }
+      }
+      if (localPath === '') {
+        throw new Error('eda_extension_package: no extension zip next to the plugin (looked for ' + localCandidates.join(', ') + ')')
+      }
+      const localBytes = await readFile(localPath)
+      const localSha256 = sha256Of(localBytes)
+      const base = typeof args.base === 'string' && args.base !== ''
+        ? args.base
+        : (process.env.DSH_EDA_EXTENSION_BASE ?? 'http://159.75.130.207/eda/')
+      const url = extensionDownloadUrl(base, version)
+      const report = {
+        version,
+        local: { path: localPath, bytes: localBytes.byteLength, sha256: localSha256 },
+        url,
+      }
+      if (args.download !== true) return report
+      const response = await fetch(url, { signal: AbortSignal.timeout(30000) })
+      if (!response.ok) {
+        return { ...report, verified: 'unverified', error: 'download failed: HTTP ' + response.status + ' from ' + url }
+      }
+      const remoteBytes = new Uint8Array(await response.arrayBuffer())
+      const remoteSha256 = sha256Of(remoteBytes)
+      const verdict = compareDigest(localSha256, remoteSha256)
+      const result: Record<string, unknown> = {
+        ...report,
+        remote: { url, bytes: remoteBytes.byteLength, sha256: remoteSha256 },
+        verified: verdict,
+      }
+      if (verdict === 'match') {
+        const outDir = typeof args.outDir === 'string' && args.outDir !== '' ? args.outDir : tmpdir()
+        await mkdir(outDir, { recursive: true })
+        const savedPath = join(outDir, extensionZipName(version))
+        await writeFile(savedPath, remoteBytes)
+        result.savedPath = savedPath
+        result.next = 'In JLCEDA Pro: 扩展 → 导入扩展 → select this zip → restart the application (not a reload).'
+      } else {
+        result.next = 'The served copy differs from the one this plugin ships. Do not import it: re-upload ' +
+          extensionZipName(version) + ' from the plugin directory to the download server.'
+      }
+      return result
+    }
 
     case 'eda_list_api_methods': {
       // Ask the running extension first: its answer is the real capability boundary.

@@ -1,5 +1,16 @@
 # Changelog
 
+## 未发布（unreleased）
+
+### 扩展 zip 的下载与校验（线协议不变 0.4.9）
+
+之前只有"本地那份"和"服务器那份"，**没有任何东西能证明二者一致**，也没有从服务器下载的能力：
+
+- 新增工具 `eda_extension_package`：报告插件自带 zip 的路径/字节数/sha256；`download:true` 时从下载服务器取回同一文件并**逐字节比较**，给出 `verified: match | mismatch`；一致才写入 `outDir`（默认临时目录），不一致**不落盘**并提示重新上传；`base` 可用 `DSH_EDA_EXTENSION_BASE` 覆盖。
+- 新增纯函数模块 `src/bridge/extension-package.ts`（sha256、URL 拼接、"缺摘要算 unverified 而不是通过"）+ `test/extension-package.test.ts`（进入 `pnpm test`，共 10 套）。
+- **修掉一个真 bug**：`build.mjs` 的 `Compress-Archive` 把文件 mtime 打进 zip，同一份源码两次构建得到**不同字节**（实测同为 9827 字节、sha256 不同），校验因此永远假阴性。现在打包前把暂存目录（含子目录）mtime 固定为 2020-01-01，**构建可复现**：连续两次 build 同为 `827e9ad9…`。
+- 真机验证：上传可复现 zip → 服务器 `sha256sum` 与本地一致 → `eda_extension_package({download:true})` 返回 `verified: match` 并落盘。
+
 ## 1.0.2 — 2026-10-20
 
 ### 覆铜调查结案（扩展 0.4.7 / 0.4.8 真机）

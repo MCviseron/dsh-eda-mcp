@@ -57,6 +57,8 @@ pnpm add dsh-eda-mcp            # 或用 Web GUI 的插件管理器安装
 
 文件名自带线协议版本：导入后用 `eda_status` 核对，版本与桥接不一致就重启嘉立创EDA专业版。
 
+校验：`eda_extension_package` 报告插件自带的 zip（路径、字节数、sha256）；传 `download: true` 时会把服务器那份取回来逐字节比对（`verified: match | mismatch`），一致才存到 `outDir`（默认临时目录），不一致则不落盘并提示重新上传。zip 构建已改为可复现，同样的源码永远得到同一个 sha256。
+
 ### 1. 安装到 DSH Web profile
 
 ```sh

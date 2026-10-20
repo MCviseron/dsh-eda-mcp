@@ -1,7 +1,7 @@
 import { build } from 'esbuild'
 import { execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
-import { cp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { cp, mkdir, readdir, readFile, rm, utimes, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 const sharedExternal = [
@@ -123,6 +123,20 @@ if (!bridgeSource.includes(versionPlaceholder)) {
   throw new Error('jlc-extension/api-bridge.js must use the ' + versionPlaceholder + ' placeholder for its version')
 }
 await writeFile(stagedBridge, bridgeSource.split(versionPlaceholder).join(extensionVersion), 'utf8')
+
+// Reproducible zip: Compress-Archive stores each entry's mtime, so two builds of the
+// same sources produced different bytes (measured: same 9827 bytes, different sha256),
+// which made "is the served copy the one this plugin ships?" unanswerable. Pin every
+// staged mtime so the archive is a pure function of the sources.
+const pinnedTime = new Date('2020-01-01T00:00:00Z')
+const pinTimes = async (dir) => {
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name)
+    if (entry.isDirectory()) await pinTimes(path)
+    await utimes(path, pinnedTime, pinnedTime)
+  }
+}
+await pinTimes(stage)
 
 // One artefact, versioned name: two copies with identical bytes only confuse
 // whoever has to pick one. Everything that needs the file resolves it by version.

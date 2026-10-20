@@ -292,5 +292,6 @@ C. 只做 PCB：
 - **插件代码改动对当前会话完全不生效**：宿主在启动时把 `lib/index.js` 载入内存，之后改文件、重新 build 都不会热更新。
 - 版本纪律：扩展线协议**只递增最小位**（`0.4.1 → 0.4.2`），每次改动必须同时改 `jlc-extension/extension.json` 的 `version` 与桥接的 `VERSION`；不一致时 `eda_status.versionMismatch` 为 true。
 - 新会话开工顺序：`eda_status`（连没连、版本对不对）→ 本技能（怎么干）→ 再动手；不要先假设环境就绪。
+| 需要扩展 zip（换机器/给别人） | 不清楚该给哪一份 | `eda_extension_package` 报路径+sha256；`download:true` 从服务器取回并逐字节比对（`verified`），一致才落盘 |
 - 扩展 zip 位置：`node_modules/dsh-eda-mcp/dsh-eda-bridge-extension-<版本>.zip`，或设置卡片下载（文件名自带版本号）。
 - 排查顺序：`eda_status` → `/api/dsh-eda-mcp/diagnostics`（`clientStartupError` / `skills` / `bridgeHealth`）→ `eda_list_api_methods`（白名单）→ 应用侧 DRC 面板。

@@ -176,3 +176,9 @@ Design limits enforced by these tools (track widths, via sizes, net naming) are 
 |---|---|---|
 | `eda_api_call` | Call an allow-listed JLCEDA Pro extension API method directly. | `method: string, args: array` |
 
+## Other
+
+| Tool | Description | Parameters |
+|---|---|---|
+| `eda_extension_package` | Report the extension zip this plugin ships (absolute path, bytes, sha256) and, with download:true, fetch the copy served at the download base URL and compare the two byte for byte. On a match the served file is saved to outDir (default: the temp directory) so it can be imported into JLCEDA Pro; on a mismatch nothing is written and the tool says to re-upload. base defaults to DSH_EDA_EXTENSION_BASE or the project download server. | `download?: boolean, outDir?: string, base?: string` |
+

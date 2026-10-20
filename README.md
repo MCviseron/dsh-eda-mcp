@@ -49,6 +49,12 @@ Direct links (no package install needed):
 The filename always carries the wire version; check `eda_status` after importing and restart JLCEDA
 Pro when the version differs from the bridge.
 
+Verification: `eda_extension_package` reports the zip this plugin ships (path, bytes, sha256) and,
+with `download: true`, fetches the served copy and compares the two byte for byte (`verified: match |
+mismatch`). On a match it saves the file to `outDir` (default: the temp directory); on a mismatch it
+writes nothing and tells you to re-upload. The zip build is reproducible, so equal sources always
+produce the same sha256.
+
 ### 1. Install into the DSH web profile
 
 ```sh
