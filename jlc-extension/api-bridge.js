@@ -615,6 +615,9 @@ function dshEdaMcpStatus() {
         function () {
           wsReady = true;
           lastPongAt = Date.now();
+          // The 'not connected' tip is sticky by design while we are offline; once the
+          // socket is up it must go away, otherwise it sits on the canvas forever.
+          hideConnectTip();
           sendObject({ type: 'hello', version: VERSION });
         }
       );
@@ -635,10 +638,11 @@ function dshEdaMcpStatus() {
     registerWebSocket();
   }
 
-  function showToast(message, type) {
+  function showToast(message, type, seconds) {
     try {
       if (typeof eda !== 'undefined' && eda.sys_Message && typeof eda.sys_Message.showToastMessage === 'function') {
-        eda.sys_Message.showToastMessage(message, type || 'info');
+        // Always pass a finite timer: omitting it (or 0) leaves the toast on screen forever.
+        eda.sys_Message.showToastMessage(message, type || 'info', seconds || 4);
       } else {
         console.log('[dsh-eda-mcp] ' + message);
       }
@@ -742,20 +746,30 @@ function dshEdaMcpStatus() {
     }
   }
 
+  // One removable tip instead of a stack of toasts: showToastMessage has no hide API
+  // (timer:0 meant "never"), so a stack of them used to pile up over the canvas and the
+  // '未连接' banner survived even after the connection was established (measured).
+  var CONNECT_TIP = 'DSH MCP 未连接：菜单 DSH MCP → 连接 DSH MCP 服务器（ws://127.0.0.1:39009/ws）';
+
+  function hideConnectTip() {
+    try {
+      if (typeof eda !== 'undefined' && eda.sys_Message && typeof eda.sys_Message.removeFollowMouseTip === 'function') {
+        eda.sys_Message.removeFollowMouseTip(CONNECT_TIP);
+      }
+    } catch (_) { /* ignore */ }
+  }
+
   function showConnectToast() {
     if (wsReady) return;
     try {
       if (typeof eda === 'undefined' || !eda.sys_Message) return;
-      eda.sys_Message.showToastMessage(
-        'DSH MCP 未连接。点击右侧按钮连接本地桥接服务（ws://127.0.0.1:39009/ws）。',
-        'warning',
-        0,
-        undefined,
-        '连接 DSH MCP',
-        "eda.sys_MessageBus.publishPublic('dsh-eda-mcp/connect', {})"
-      );
+      if (typeof eda.sys_Message.showFollowMouseTip === 'function') {
+        eda.sys_Message.showFollowMouseTip(CONNECT_TIP, 8000);
+        return;
+      }
+      eda.sys_Message.showToastMessage(CONNECT_TIP, 'warning', 8);
     } catch (error) {
-      console.error('[dsh-eda-mcp] connect toast failed:', error);
+      console.error('[dsh-eda-mcp] connect tip failed:', error);
     }
   }
 
