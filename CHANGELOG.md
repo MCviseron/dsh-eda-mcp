@@ -1,6 +1,22 @@
 # Changelog
 
 ## 未发布（unreleased）
+### 真机验证（扩展 0.4.4）修复的两个问题与三条实测结论
+
+**修掉（这次真机才暴露）**
+
+- `pcb_draw_mounting_hole` 首次实现漏了 `pad` 形状 → 应用报"无法创建焊盘图元，可能是传入的参数不正确"。补 `pad` 后圆孔通过：
+  `layer:12, pad:["ELLIPSE",126,126], hole:["ROUND",126], metallization:false`。
+- 槽孔不能用 `OBLONG`/`RECTANGLE` 焊盘（同样报错）；实测只有 `ELLIPSE(长,宽)` 被接受：
+  `pad:["ELLIPSE",220,80], hole:["SLOT",80,220]`。工具已按此内建，并新增 `annulus`/`padNumber` 参数。
+- `eda_pcb_create_pour` 的错误现在能区分两种失败：先单独探测多边形轮廓，报 `polygonStage=ok|failed`。
+
+**实测结论（写进技能第 9 章故障表）**
+
+1. **覆铜是应用侧限制**：`polygonStage=ok`（`pcb_MathPolygon.createPolygon` 接受轮廓）但 `pcb_PrimitivePour.create` 无论网络/填充方式（`no-fill`、`SOLID`、`solid`）/参数组合一律报"无法创建覆铜边框图元"。结论：3.2.186 的这台构建不允许通过 API 建覆铜，只能手工框选。
+2. `pcb_PrimitiveString.getAll` / `pcb_PrimitivePad.getAll` **按层查询**，不传 layer 恒为 0（所以"看似没有图元"其实是有）。
+3. 本机这块 STM32 板的实测状态（导出 PNG 判读）：板框 2400×1400 mil @ (0,0)、**0 个覆铜**、**0 个丝印 String 图元**（可见文字全部来自封装自带丝印或编辑器网络名叠加）。
+
 ### 修掉「能力边界报错」：白名单以**扩展自报**为准（线协议 0.4.3 → **0.4.4**）
 
 **问题（用户实测指出，成立）**：桥接自己维护了一份 `ALLOWED_API` 副本，却拿它当权威 ——

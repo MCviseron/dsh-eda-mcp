@@ -313,7 +313,7 @@ const TOOLS = [
   { name: 'eda_export_bom', description: 'Export the schematic BOM. csv is decoded from UTF-16 to readable text; xlsx returns a base64 data URL.', inputSchema: objectSchema({ format: { type: 'string', enum: ['csv', 'xlsx'] } }) },
   { name: 'eda_move_component', description: 'Move/rotate/mirror a schematic component (sch_PrimitiveComponent.modify) without deleting and re-placing it, so the designator and value survive.', inputSchema: objectSchema({ primitiveId: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, rotation: { type: 'number' }, mirror: { type: 'boolean' } }, ['primitiveId']) },
   { name: 'pcb_draw_text', description: 'Put text on a PCB layer - silkscreen by default (3 top silk / 4 bottom silk). Use it for pin functions, board markings, version and fabrication notes; silkscreen text must not cover pads.', inputSchema: objectSchema({ x: { type: 'number' }, y: { type: 'number' }, text: { type: 'string' }, layer: { type: 'string' }, fontSize: { type: 'number' }, lineWidth: { type: 'number' }, rotation: { type: 'number' }, mirror: { type: 'boolean' }, alignMode: { type: 'integer' }, locked: { type: 'boolean' } }, ['x', 'y', 'text']) },
-  { name: 'pcb_draw_mounting_hole', description: 'Place a NON-plated mounting hole or a slot (pcb_PrimitivePad with metallization:false). shape "round" is a drill-sized hole, shape "slot" an oval cut-out. Use this for mounting holes and connector slots instead of hacking the board outline.', inputSchema: objectSchema({ x: { type: 'number' }, y: { type: 'number' }, diameter: { type: 'number' }, shape: { type: 'string', enum: ['round', 'slot'] }, slotLength: { type: 'number' }, rotation: { type: 'number' }, plated: { type: 'boolean' }, layer: { type: 'string' } }, ['x', 'y', 'diameter']) },
+  { name: 'pcb_draw_mounting_hole', description: 'Place a NON-plated mounting hole or a slot (pcb_PrimitivePad with metallization:false). shape "round" is a drill-sized hole, shape "slot" an oval cut-out. Use this for mounting holes and connector slots instead of hacking the board outline.', inputSchema: objectSchema({ x: { type: 'number' }, y: { type: 'number' }, diameter: { type: 'number' }, shape: { type: 'string', enum: ['round', 'slot'] }, slotLength: { type: 'number' }, rotation: { type: 'number' }, plated: { type: 'boolean' }, annulus: { type: 'number' }, padNumber: { type: 'string' }, layer: { type: 'string' } }, ['x', 'y', 'diameter']) },
   { name: 'eda_capture', description: 'Render the active document to a PNG (dmt_EditorControl.getCurrentRenderedAreaImage) and write it to outPath or return a data URL. Use it to LOOK at the sheet/board instead of trusting coordinate math; read the file back with the image reader.', inputSchema: objectSchema({ outPath: { type: 'string' }, inline: { type: 'boolean' } }) },
   { name: 'eda_workflow_guide', description: 'Return the schematic working standard: grid-aligned manual placement, signal flow, when net labels/ports are required (a wire net name is overridden by connectivity), net-label fallback behaviour, batch placement and the verification order. Read it before laying out a sheet.', inputSchema: objectSchema({}) },
   { name: 'eda_list_api_methods', description: 'Ask the CONNECTED EXTENSION for the API methods it accepts right now (dsh.internal.listApiMethods) and report source/version/counts. Falls back to the bridge copy with stale:true only when the extension is an older zip. Use refresh:true to re-query.', inputSchema: objectSchema({ refresh: { type: 'boolean' } }) },
@@ -2282,8 +2282,19 @@ async function executeTool(name, rawArgs, timeoutMs) {
         holeSpec = ['ROUND', holeDiameter]
       }
       const holeLayer = args.layer === undefined ? PCB_LAYERS.multi : resolvePcbLayer(args.layer)
+      // The pad shape is mandatory: without it the app answers "无法创建焊盘图元".
+      // A non-plated hole is a pad with metallization:false and pad == hole (plus an
+      // optional annulus), so the drill and the mask aperture line up.
+      const annulus = args.annulus === undefined ? 0 : Number(args.annulus)
+      if (!Number.isFinite(annulus) || annulus < 0) throw new Error('pcb_draw_mounting_hole: annulus must be >= 0 (mil)')
+      const slotLengthValue = args.slotLength === undefined ? holeDiameter * 2 : Number(args.slotLength)
+      // The app accepts an ELLIPSE pad for a SLOT hole (major axis = slot length);
+      // OBLONG/RECTANGLE pads are rejected with "无法创建焊盘图元".
+      const padShape = holeShape === 'slot'
+        ? ['ELLIPSE', slotLengthValue + annulus * 2, holeDiameter + annulus * 2]
+        : ['ELLIPSE', holeDiameter + annulus * 2, holeDiameter + annulus * 2]
       return await callExtension('pcb_PrimitivePad.create', [
-        holeLayer, '', holeX, holeY, holeRotation, undefined, undefined, holeSpec,
+        holeLayer, String(args.padNumber ?? ''), holeX, holeY, holeRotation, padShape, undefined, holeSpec,
         0, 0, 0, metallization, undefined, undefined, undefined, undefined, false,
       ], timeoutMs)
     }
@@ -2651,9 +2662,17 @@ async function executeTool(name, rawArgs, timeoutMs) {
       assertNetName(String(args.net), 'eda_pcb_create_pour')
       const fill = args.pourFillMethod === undefined ? undefined : String(args.pourFillMethod)
       if (fill !== undefined && fill !== '45grid' && fill !== '90grid' && fill !== 'solid') throw new Error('eda_pcb_create_pour: pourFillMethod must be 45grid, 90grid or solid')
-      // This build rejects some pour argument combinations ("无法创建覆铜边框图元"),
-      // so a plain-GND pour is retried once with the most conservative settings
-      // before the caller is told to pour by hand.
+      // This build rejects pour creation ("无法创建覆铜边框图元") independently of the
+      // fill method, so probe the polygon alone first: that separates "my points are
+      // wrong" from "the app refuses pours through the API".
+      let polygonOk = false
+      try {
+        const probe = await callExtension('pcb_MathPolygon.createPolygon', [buildPolygonSource(points)], timeoutMs)
+        polygonOk = probe !== undefined && probe !== null
+      } catch {
+        polygonOk = false
+      }
+      // A conservative retry once, then a diagnosis the caller can act on.
       const attempt = async (fillMethod, preserveSilos) => callExtension('dsh.internal.pourCreate', [
         String(args.net), layer, buildPolygonSource(points), fillMethod,
         preserveSilos,
@@ -2674,8 +2693,12 @@ async function executeTool(name, rawArgs, timeoutMs) {
           const detail = secondFailure instanceof Error ? secondFailure.message : String(secondFailure)
           throw new Error('eda_pcb_create_pour failed twice (first: ' +
             (firstFailure instanceof Error ? firstFailure.message : String(firstFailure)) + '; retry: ' + detail + '). ' +
-            'This EDA build rejects API pour creation for some polygons: confirm every point is inside the board outline and the layer is copper, ' +
-            'or pour by hand in the PCB editor (覆铜 → GND → top+bottom); eda_design_audit keeps reporting it as a warn until then.')
+            'polygonStage=' + (polygonOk ? 'ok' : 'failed') + ': ' +
+            (polygonOk
+              ? 'the app accepted the outline but refused the pour itself, so this is an application limit, not a coordinate problem. ' +
+                'Pour by hand in the PCB editor (覆铜 → select GND → top + bottom); eda_design_audit reports it as a warn until then.'
+              : 'the outline polygon was rejected too: check that every point is inside the board outline and flat [x1,y1,...].') +
+            ' retried=' + retried)
         }
       }
       return {
