@@ -20,6 +20,10 @@ export interface ErcComponent {
   designator: string
   part: string
   footprint: string
+  /** LCSC / supplier part number, empty when the part is not orderable by number. */
+  supplierPart: string
+  addIntoBom: boolean
+  convertToPcb: boolean
   pins: Array<{ number: string; name: string; net: string }>
 }
 
@@ -71,10 +75,17 @@ export function parseNetlist(raw: any): { components: ErcComponent[]; pins: ErcP
       own.push({ number, name, net })
       pins.push({ designator, number, name, net })
     }
+    const flag = (value: unknown, fallback: boolean) => {
+      if (value === undefined || value === null || value === '') return fallback
+      return !/^(?:no|false|0)$/i.test(String(value).trim())
+    }
     components.push({
       designator,
       part: String(props['Manufacturer Part'] ?? props.Device ?? ''),
       footprint: String(props.Footprint ?? ''),
+      supplierPart: String(props['Supplier Part'] ?? props['LCSC Part'] ?? ''),
+      addIntoBom: flag(props['Add into BOM'], true),
+      convertToPcb: flag(props['Convert to PCB'], true),
       pins: own,
     })
   }
@@ -264,6 +275,30 @@ export function runNetlistErc(rawNetlist: any): ErcReport {
       missing.length === 0 ? 'CC1/CC2 each have a resistor to ground' : missing.length + ' CC pin(s) lack a 5.1k pull-down', missing)
   }
 
+  // 11. orderability: a part without a supplier part number cannot be bought, and a
+  // part excluded from the PCB conversion never reaches the board.
+  const missingSupplier = components.filter(component => component.supplierPart.trim() === '')
+    .map(component => component.designator + (component.part ? ' (' + component.part + ')' : ''))
+  add('bom-part-number', missingSupplier.length === 0 ? 'pass' : 'warn',
+    missingSupplier.length === 0
+      ? 'every part carries a supplier part number'
+      : missingSupplier.length + ' part(s) have no supplier/LPSC part number (not orderable by number)',
+    missingSupplier.slice(0, 20))
+
+  const excluded = components.filter(component => !component.convertToPcb).map(component => component.designator)
+  add('pcb-conversion', excluded.length === 0 ? 'pass' : 'warn',
+    excluded.length === 0
+      ? 'every part is marked Convert to PCB'
+      : excluded.length + ' part(s) are excluded from the PCB conversion (they will be missing on the board)',
+    excluded.slice(0, 20))
+
+  const noFootprint = components.filter(component => component.convertToPcb && component.footprint.trim() === '')
+    .map(component => component.designator)
+  add('footprint', noFootprint.length === 0 ? 'pass' : 'fail',
+    noFootprint.length === 0
+      ? 'every PCB-bound part has a footprint'
+      : noFootprint.length + ' PCB-bound part(s) have no footprint and cannot be placed',
+    noFootprint.slice(0, 20))
   const counts = { pass: 0, fail: 0, warn: 0, skip: 0 }
   for (const check of checks) counts[check.status] += 1
   return { ok: counts.fail === 0, counts, componentCount: components.length, netCount: nets.size, checks }

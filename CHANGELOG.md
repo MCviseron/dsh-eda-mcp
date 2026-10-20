@@ -1,160 +1,47 @@
 # Changelog
 
-## 未发布（unreleased）
-### 新增 `eda_design_intake`：参数没问清之前不许动手（工具 106 → **107**）
+## 1.0.0 — 2026-10-20
 
-用户说"我要打一块 X 板"时，供电、接口、板框、层数、连接器朝向都是空白。过去 agent 容易直接开工，把猜测当成已知。现在把"开工前必须问什么"做成工具：
+第一个稳定版。0.7.4 之后这一轮把"能画"推进到"画得对、画得像参考设计、交付有证据"：工具 106 → **109**，单测 6 → **8 套**，线协议 0.4.2 → **0.4.6**。
 
-- **6 个部分 / 22 个问题，其中 14 个 critical**：供电与电流、主控与固件、接口与外设、机械与结构、工艺与制造、交付与验证；
-- 每个问题带 `why`（为什么它会改变画法）；有选项的给 `options`（USB-C/DC 座、2 层/4 层、单面/双面贴片…）；non-critical 项给 `fallback`；
-- `answers:{questionId:value}` 记录答复并按会话累积，返回 `ready`、`missingCritical`、未知 key（拼错会报出来而不是静默丢弃）；
-- **软闸门**：本会话没有记录任何参数时，第一次 `eda_place_component` 的返回值带 `intakeWarning`（不阻断，但点名缺哪些 critical 项）。
-
-**真机验证**：空调用返回 22 问 / 14 critical / 6 部分；只答 3 项时 `ready:false`、其余 11 项仍在 `missingCritical` 里。
-
-新增单测 `test/design-intake.test.ts`（15 条断言：结构、critical 计数、部分回答、未知 key、空值不计数、null 容错、id 唯一），已进 `pnpm test`（现 **8 套**）。
-
-技能新增第 0 章「开工前：参数没问清就不要动手」：问法、记录方式、默认值如何声明，以及四条真实反模式（先摆器件再问、把"最小系统板"当规格、板框随手定导致装不进外壳、没问阻抗却要求阻抗控制）。
-
-### 用官方示例工程建立参考基线（并修掉我自己的两条误报）
-
-本地随安装包有 5 个 `示例工程_*.eprj2`。实测 `示例工程_快速入门` 并与本机 STM32 板对照：
-
-| 指标 | 官方示例 | STM32 板 | 结论 |
-|---|---|---|---|
-| 走线 / 线宽 | 98 条，15 mil ×67 + 25 mil ×31 | 502 条，6–16 mil | 官方示例**没有 6 mil 细线**；15 mil 是它的常规信号宽度 |
-| 覆铜 | 1 | 0 | 覆铜确实是参考实践 |
-| 丝印文本图元 | **19** | **0** | 差距最大的一项 |
-| `eda_design_audit` | 0 违规 / 0 警告 | 0 违规 / 4 警告 | 规则已用参考设计校准 |
-
-**误报修复（对照的直接收益）**
-
-- `$1N6954` 这类 EDA 自生成隐藏电源网络名被字符集规则判为非法 → 现在放行 `$` 开头的自动名；
-- 15 mil 被"0.05 mm 步进"规则报警 → 15/25/12 mil 视为标准档位；9.81 mil（0.2492 mm）的舍入噪声改为按"距最近档位 0.01 mm 容差"判断。
-
-**新增两条 audit 检查**（对齐参考实践）：`silkscreen-text`（顶层丝印 0 个文本图元 → warn，示例板有 19 个）、`mounting-hole`（板宽 > 1200 mil 且无非金属化定位孔 → warn）。
-
-### 新增 `eda_netlist_erc`：网表级电气烟雾测试（工具 105 → **106**）
-
-外部对照（HWE-Bench 主张"执行驱动验证"、6 模型×嘉立创 EDA 横评的翻车点、KiCad sch-api #104 的标签落点问题）指向同一件事：**DRC 通过 ≠ 电路正确**。原理图 DRC 在本机构建上还只回聚合计数，所以新增一个不依赖应用 DRC 的只读检查。
-
-`eda_netlist_erc` 直接读网表（`components[key].pinInfoMap[].{name,number,net}`），纯函数实现（`src/bridge/netlist-erc.ts`），12 项检查：位号重复(fail)、悬空脚(warn)、单端点网络(fail)、无地(fail)/地端点过少(warn)、器件全脚同网(fail)、IC 电源脚悬空(fail)、电源轨无去耦电容(warn)、USB 仅 D+ 或仅 D-(fail)、晶振两脚同网/缺负载电容/不通 MCU(warn)、复位缺 RC(warn)、BOOT 无上下拉(warn)、Type-C CC 缺 5.1k 下拉(warn)。
-
-**真机验证**（29 器件 / 46 网络的 STM32 最小系统板）：12 项全部执行，**11 pass / 0 fail / 1 warn**，唯一告警是 USB-C 的 SBU1/SBU2 未接（正常工作状态）——没有误报。
-
-新增单测 `test/netlist-erc.test.ts`（17 条断言：健康设计全过、单端点失败、器件短路、USB 缺 D-、缺去耦、晶振缺电容、悬空脚、位号重复、空网表不崩），已加入 `pnpm test` 链（现 7 套）。
-
-技能新增第 9c 章「外部对照：AI 画板已知失败模式」，标注来源与逐条判据；系统提示同步一行：布线/投板前必须跑 `eda_netlist_erc`。
-
-### 对照官方文档全面排查（线协议 0.4.5 → **0.4.6**）
-
-依据：本地安装的 `api-types.d.ts`（pro-api 0.3.18.0bc12bb0，127 类 / 1579 方法）、`easyeda/extension-dev-skill` 的 38 份配方、`easyeda-pro-file-format-v2` 的文件格式文档、`prodocs` 的 API 参考。
-
-**机械对照结果（自动化，可复跑）**
-
-| 项目 | 结果 |
-|---|---|
-| 白名单 171 条方法是否都存在于官方类型定义 | ✅ 0 缺失 |
-| 桥接 97 处 `callExtension` 方法名是否都存在 | ✅ 0 缺失 |
-| 调用参数个数是否符合官方签名（含必填/可选/变参） | ✅ 0 违规 |
-
-**发现并修掉的真问题：PCB 有两套坐标**
-
-官方 `PCB_Document` 注释原文：**「嘉立创 EDA 专业版前端显示的坐标均为画布原点；API 使用的均为数据原点」**，并提供 `getCanvasOrigin` / `setCanvasOrigin` / `convertCanvasOriginToDataOrigin` / `convertDataOriginToCanvasOrigin`。
-
-- 这就是"纯 API 计算位置不准、越界判断失真"的根因之一：界面坐标 ≠ API 坐标，中间差一个偏移；
-- 新增工具 **`eda_pcb_canvas_origin`**：读偏移、`align:true` 调 `setCanvasOrigin(0,0)` 让显示与 API 一致、并可用 `point` 在两个空间互转；
-- 原理图侧无此偏移（`SCH_Document` 没有对应 API），所以原理图坐标不存在该问题；
-- 系统提示与技能故障表同步该规则。
-
-**官方配方对照：我们已合规 / 无需改动的项**
-
-- SCH 禁止 `setState` 链式修改，必须用 `modify()` → 我们全部走 `modify()`，零 `setState_` 调用 ✅
-- 原理图引脚必须用 `sch_PrimitiveComponent.getAllPinsByPrimitiveId()`，`sch_PrimitivePin.getAll()` 恒空 → 我们用它 ✅
-- 覆铜是复杂多边形 + 必须 `rebuildCopperRegion()` → 已在 0.4.5 修 ✅
-- `pcb_Document.save()`：配方写"需传 uuid"，但**本地 0.3.18 类型定义是 `save(): Promise<boolean>`（无参）** → 以类型定义为准，我们的零参调用正确；配方文本对该版本已过时（记入文档，避免以后按配方误改）。
-
-### 覆铜：从"应用限制"改判为"我用错了 API"（线协议 0.4.4 → **0.4.5**）
-
-我上一轮结论写错了：不是 EDA 不支持，而是**我用单多边形去建覆铜**。查官方文档后确认两点：
-
-1. 覆铜边框的几何是**复杂多边形**（外环 + 可选孔），API 入口是 `pcb_MathPolygon.createComplexPolygon`；我一直在用 `createPolygon`（单多边形）。
-2. 建完边框必须调 `IPCB_PrimitivePour.rebuildCopperRegion()` 才会**真正计算铜皮**，否则只有边框没有铜。
-
-修复：扩展新增白名单 `pcb_MathPolygon.createComplexPolygon`；`dsh.internal.pourCreate` 改为先 `createComplexPolygon`（必要时降级 `createPolygon`），创建成功后调用 `rebuildCopperRegion()`，返回值带 `rebuilt` 标记。
-
-依据来源（官方）：`easyeda/extension-dev-skill` 的 `recipes/pcb_primitives_bindraw.md`（Pour = 覆铜边框、Poured = 只读填充）、`easyeda-pro-file-format-v2` 的 `docs/en/pcb/polygon-system/pour.md`（POUR 记录结构与复杂多边形/填充类型）、`prodocs` 的 `PCB_PrimitivePour.create`、`IPCB_PrimitivePour.rebuildCopperRegion`。
-
-另修正一处我自己的误读：我曾据 `names.slice(0,20)` 断言"板上没有 GND 网络"，实际 46 个网络里有 `GND`（在第 44 位）——网络名不是覆铜失败的原因。
-
-### 真机验证（扩展 0.4.4）修复的两个问题与三条实测结论
-
-**修掉（这次真机才暴露）**
-
-- `pcb_draw_mounting_hole` 首次实现漏了 `pad` 形状 → 应用报"无法创建焊盘图元，可能是传入的参数不正确"。补 `pad` 后圆孔通过：
-  `layer:12, pad:["ELLIPSE",126,126], hole:["ROUND",126], metallization:false`。
-- 槽孔不能用 `OBLONG`/`RECTANGLE` 焊盘（同样报错）；实测只有 `ELLIPSE(长,宽)` 被接受：
-  `pad:["ELLIPSE",220,80], hole:["SLOT",80,220]`。工具已按此内建，并新增 `annulus`/`padNumber` 参数。
-- `eda_pcb_create_pour` 的错误现在能区分两种失败：先单独探测多边形轮廓，报 `polygonStage=ok|failed`。
-
-**实测结论（写进技能第 9 章故障表）**
-
-1. **覆铜是应用侧限制**：`polygonStage=ok`（`pcb_MathPolygon.createPolygon` 接受轮廓）但 `pcb_PrimitivePour.create` 无论网络/填充方式（`no-fill`、`SOLID`、`solid`）/参数组合一律报"无法创建覆铜边框图元"。结论：3.2.186 的这台构建不允许通过 API 建覆铜，只能手工框选。
-2. `pcb_PrimitiveString.getAll` / `pcb_PrimitivePad.getAll` **按层查询**，不传 layer 恒为 0（所以"看似没有图元"其实是有）。
-3. 本机这块 STM32 板的实测状态（导出 PNG 判读）：板框 2400×1400 mil @ (0,0)、**0 个覆铜**、**0 个丝印 String 图元**（可见文字全部来自封装自带丝印或编辑器网络名叠加）。
-
-### 修掉「能力边界报错」：白名单以**扩展自报**为准（线协议 0.4.3 → **0.4.4**）
-
-**问题（用户实测指出，成立）**：桥接自己维护了一份 `ALLOWED_API` 副本，却拿它当权威 ——
-
-1. `eda_list_api_methods` 返回的是**桥接本地表**，却宣称是"扩展接受的白名单"，于是调用方把错误的清单当成能力边界（本次就被误导）；
-2. `eda_api_call` 也用这份本地副本做前置拦截，**桥接比扩展更严**，凡是"扩展接受但桥接表没收录"的方法（如 `dmt_Project.*`）一律被误拒；
-3. 报错文案还让调用方"去调 `eda_list_api_methods` 看清单"，而那份清单正是错的 —— 形成闭环误导。
-
-**修法：把权威交给运行中的扩展。**
-
-- 扩展新增内部助手 `dsh.internal.listApiMethods`，返回 `{ version, allowed, files }`（`ALLOWED_API` ∪ `FILE_METHODS` 的真实内容）；
-- `eda_list_api_methods` 先问扩展：返回 `source:"extension"` + `extensionVersion` + `count/allowedCount/fileCount/fileMethods`；只有扩展是旧 zip（没有该助手）时，才回退本地副本并明确标 `source:"bridge-local-copy", stale:true`，同时说明它可能比现实更窄；
-- **`eda_api_call` 删除本地前置拦截**：直接转发给扩展，由扩展裁决；仅当扩展回 `not allowed` 时才把错误翻译成可操作信息（并顺带刷新一次扩展清单）。这样桥接**永远不会比扩展更严**；
-- 清单按连接缓存（`extensionApiCache`），`refresh:true` 强制重查。
-
-**防复发（contract-check 新增两条断言）**：扩展必须实现 `dsh.internal.listApiMethods`；`eda_api_call` 体内不得再出现 `ALLOWED_API.has(` 形式的前置拦截。
-
-手册同步：故障表把"dmt_Project.* 报 not allowed"改为"旧扩展 或 旧桥接本地副本误拦"，并新增一条规则 —— **能力边界以 `eda_list_api_methods` 的 `source:extension` 为准**，`bridge-local-copy` 只说明装了旧 zip。
-
-
-### 依据「STM32 最小系统板」真机会话反馈的一批修复（线协议 0.4.2 → **0.4.3**）
-
-> 扩展白名单有新增（PCB 文本 / PCB 焊盘），按规矩**只递增最小位**：需要重新导入 `dsh-eda-bridge-extension-0.4.3.zip`。
-
-#### 新增工具（101 → 104）
+### 新增工具
 
 | 工具 | 作用 |
 |---|---|
-| `pcb_draw_text` | PCB 丝印/装配/文档层文本（`pcb_PrimitiveString.create`）：引脚功能、接口名、版号、制版信息；默认顶层丝印，字号默认 40mil，禁止压焊盘 |
-| `pcb_draw_mounting_hole` | **非金属化定位孔/槽孔**（`pcb_PrimitivePad.create` + `metallization:false`，`ROUND`/`SLOT`）：不用再靠"挖板框"制造孔 |
-| `eda_capture` | `dmt_EditorControl.getCurrentRenderedAreaImage` → PNG（可写 `outPath` 或用 `inline` 拿 data URL）：用**看图**代替纯坐标推算，顺带能发现越界 |
+| `eda_design_intake` | 开工前参数问卷：6 个部分 22 问（14 个 critical），每问带 why/options/fallback；答复写进工程描述持久化（`[dsh-eda-spec]`），下次会话自动读回 |
+| `eda_schematic_audit` | 原理图几何审计：符号出框、压标题栏、符号互相压住、偏离 10 单位栅格、标签落进符号体 |
+| `eda_netlist_erc` | 网表级电气烟雾测试（12 → **15 项**）：位号重复、悬空脚、单端点网络、器件全脚同网、电源脚悬空、缺去耦、USB D± 成对、晶振负载电容、复位 RC、BOOT 下拉、Type-C CC 下拉，以及 **BOM 可下单性**（缺料号/排除出 PCB/缺封装） |
+| `eda_delivery_checklist` | 交付检查：ERC + PCB 审计/DRC + Gerber + BOM 一次串完，逐步 PASS/FAIL，可 `outPath` 落 Markdown 报告 |
+| `pcb_draw_text` | PCB 丝印/装配/文档层文本 |
+| `pcb_draw_mounting_hole` | 非金属化定位孔/槽孔（`ELLIPSE` 焊盘 + `ROUND`/`SLOT` 钻孔） |
+| `eda_capture` | 文档渲染成 PNG（可 `cleanup:true` 删除本会话写过的临时截图） |
+| `eda_pcb_canvas_origin` | 画布坐标 ↔ 数据坐标（官方：界面显示画布、API 用数据），可 `align:true` 归零 |
 
-#### 修掉的实现问题
+### 修掉的真问题
 
-- **网络标签降级不再塞多余文本**：`createNetLabel` 不可用时，过去会同时画 stub 导线 + 一个纯文本标签，画面上多一层无意义文字。现在默认只保留 stub（`method:"stub"`），需要文字时显式传 `textLabel:true`；单个与批量工具都支持。
-- **覆铜失败不再含糊**：`eda_pcb_create_pour` 现在失败后**自动用最保守参数（solid、不保留孤岛）重试一次**；两次都失败则抛出可操作错误（确认点在板框内、层是铜层，否则手工覆铜，并说明 audit 会持续记为 warn）。返回值新增 `retried`。
-- 补齐 `PCB_LAYERS.multi`（12），定位孔默认落在多层焊盘。
+- **能力边界错报**：`eda_list_api_methods` 报桥接本地副本却宣称是扩展白名单，`eda_api_call` 又被同一份副本前置拦截 → 改为**以扩展自报为准**（`dsh.internal.listApiMethods`），桥接不再预拦，永远不比扩展更严。
+- **覆铜"无法创建"其实是 API 用错**：官方要求**复杂多边形**（`createComplexPolygon`）且建完必须 `rebuildCopperRegion()` 才计算铜皮；之前用单多边形，故一直失败（我一度误判为应用限制）。
+- **定位孔创建失败**：`pcb_PrimitivePad.create` 必须给 `pad` 形状，且槽孔只能用 `ELLIPSE(长,宽)`（`OBLONG`/`RECTANGLE` 会被拒）。
+- **网络标签降级时多余文本**：`createNetLabel` 不可用时过去同时放 stub 与纯文本；现在默认只留 stub，`textLabel:true` 才加文字。
+- **PCB 网络校验**：未知网络的走线/过孔曾被接受（留下幽灵网络），现写入前用 `pcb_Net.getAllNetsName` 校验。
+- **导出编码/分发门**：BOM 按 BOM 判编码（UTF-16LE 可读）；分发门同时接受 `FILE_METHODS`（Gerber/BOM/网表/截图原本全被挡）。
+- **参考基线校准暴露我的两条误报**：EDA 自生成网络名 `$1N6954` 被判非法、官方示例标准的 15 mil 被判"不在 0.05 mm 步进"（另有 9.81 mil 舍入噪声）。
 
-#### 手册与规范（技能第 9b 章 + 故障表 3 条）
+### 规则与文档
 
-新增「PCB 设计与工艺规则」章：
+- 技能从 12 章扩到 **17 章**：第 0 章（开工前问参数）、9b（PCB 设计工艺）、9c（外部对照与失败模式）、9d（验证与交付三件套）、第 12 章（环境与生效范围）。
+- **参考基线**（本地实测官方 `示例工程_快速入门`）：走线 98 条用 **15/25 mil**、覆铜 1、**丝印文本 19**；据此给 audit 增加 `silkscreen-text` 与 `mounting-hole` 检查，并把 12/15/25 mil 列为标准档。校准后官方示例 **0 违规 / 0 警告**，本机 STM32 板 0 违规 / 4 警告（5V 线宽偏细、无覆铜、无丝印、无定位孔）。
+- 外部对照来源写进技能：HWE-Bench（执行驱动验证）、6 模型×嘉立创 EDA 横评、KiCad sch-api #104（标签落点）、ST AN4488/AN2586、TI USB Type-C 参考设计、IPC-2221/7351。
+- 系统提示新增四条硬规则：开工先问参数、看图判据（4 个必看时机 + 看完清理）、布线/投板前跑 ERC、交付前跑 checklist。
+- 截图是临时文件：`eda_capture` 记录本会话写过的路径，`cleanup:true` 只删这些路径。
 
-- **布线顺序**：信号线 → 电源线（按角色线宽）→ GND 缝合孔 → 铺 GND 铜；反序铜会把信号围死。
-- **板框**：圆角/倒角用折线近似；定位孔/槽口用 `pcb_draw_mounting_hole`，不要靠挖板框。
-- **丝印层**放引脚功能/接口名/版号/制版信息，压焊盘禁止。
-- **元件方向**：连接器/USB/DC 座插口朝板边，IC pin1 统一朝向，极性元件方向一致，镜像前核对引脚顺序。
-- **晶振**紧贴 MCU 时钟脚、负载电容就近、走线短且等长，下方 `pcb_create_region(ruleType:7)` 禁铺铜；无晶振的板跳过。
-- **地**：信号地与功率地单点 0Ω/磁珠连接（电源层级差大时必做），铺铜分区。
-- **未使用引脚**用 `eda_set_no_connect` 打未连接标记，不留悬空。
-- **位置不只靠算**：`eda_get_page_info` 取真实图框 + `eda_capture` 看图。
+### 门禁
 
-故障表补充三条：覆铜失败、坐标越界漏检、以及**纠正**——`dmt_Project.*` 其实在白名单里（10 个方法）；报 `not allowed` 说明装的是旧扩展，去 `eda_status.extensionVersions` 对版本。
+typecheck 0 · **8 套单测全过**（node-runtime/config-values/design-rules/seams/eda-launch/skills/netlist-erc/schematic-audit/design-intake 中新增 3 套）· contract-check PASS（109 工具 / 109 schema / 103 API 调用面）· build 0 · `guard:bundle` PASS · `docs/tools.md` 109 工具 0 未分组 · `docs/schematic-workflow.md` 286 行 / 17 章。
+
+### 未在真机验证（诚实记录）
+
+线协议 0.4.5/0.4.6 的改动（覆铜复杂多边形 + `rebuildCopperRegion`、canvas-origin 四个方法）以及本轮四个新工具，发布时扩展处于断开状态，**未做真机回归**。使用前请导入 `dsh-eda-bridge-extension-0.4.6.zip` 并重启 EDA，然后按 9d 章跑一遍 `eda_delivery_checklist`。
 
 ## 0.7.4 — 2026-10-20
 

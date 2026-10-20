@@ -57,7 +57,7 @@ const GROUPS = [
   ['Project', /^(eda_list_projects|eda_get_project|eda_open_project|eda_create_project|eda_delete_project|eda_modify_project|eda_copy_project|eda_import_project|eda_export_project|eda_close_document)$/],
   ['Workspace', /^(eda_get_workspace|eda_list_teams|eda_list_folders)$/],
   ['App control', /^(eda_launch|eda_close)$/],
-  ['Schematic: query', /^(eda_capture|eda_design_intake|eda_netlist_erc|eda_pcb_canvas_origin|eda_status|eda_get_page_info|eda_get_schematic_pages|eda_get_components|eda_get_wires|eda_get_nets|eda_get_pins|eda_get_net_labels|eda_get_active_document|eda_open_document|eda_search_components|eda_list_api_methods|eda_workflow_guide)$/],
+  ['Schematic: query', /^(eda_capture|eda_delivery_checklist|eda_design_intake|eda_netlist_erc|eda_schematic_audit|eda_pcb_canvas_origin|eda_status|eda_get_page_info|eda_get_schematic_pages|eda_get_components|eda_get_wires|eda_get_nets|eda_get_pins|eda_get_net_labels|eda_get_active_document|eda_open_document|eda_search_components|eda_list_api_methods|eda_workflow_guide)$/],
   ['Schematic: place & draw', /^(eda_place_component|eda_place_net_flag|eda_place_net_label|eda_place_net_port|eda_place_net_flag_at_pin|eda_place_net_label_at_pin|eda_place_net_labels|eda_move_component|eda_set_no_connect|eda_draw_wire|eda_draw_rectangle|eda_draw_functional_box|eda_draw_circle|eda_draw_text|eda_delete_primitive|pcb_draw_text|pcb_draw_mounting_hole)$/],
   ['Schematic: automation & export', /^(eda_run_drc|eda_auto_layout|eda_auto_route|eda_export_netlist|eda_export_bom|eda_save_document|eda_zoom_to_fit|eda_zoom_to_region|eda_create_board)$/],
   ['Design rules', /^(eda_design_audit)$/],
