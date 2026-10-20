@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto'
 import { execFileSync, spawn } from 'node:child_process'
 import { existsSync, statSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
-import { unlink, writeFile } from 'node:fs/promises'
+import { mkdir, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
@@ -318,7 +318,7 @@ const TOOLS = [
   { name: 'pcb_draw_text', description: 'Put text on a PCB layer - silkscreen by default (3 top silk / 4 bottom silk). Use it for pin functions, board markings, version and fabrication notes; silkscreen text must not cover pads.', inputSchema: objectSchema({ x: { type: 'number' }, y: { type: 'number' }, text: { type: 'string' }, layer: { type: 'string' }, fontSize: { type: 'number' }, lineWidth: { type: 'number' }, rotation: { type: 'number' }, mirror: { type: 'boolean' }, alignMode: { type: 'integer' }, locked: { type: 'boolean' } }, ['x', 'y', 'text']) },
   { name: 'pcb_draw_mounting_hole', description: 'Place a NON-plated mounting hole or a slot (pcb_PrimitivePad with metallization:false). shape "round" is a drill-sized hole, shape "slot" an oval cut-out. Use this for mounting holes and connector slots instead of hacking the board outline.', inputSchema: objectSchema({ x: { type: 'number' }, y: { type: 'number' }, diameter: { type: 'number' }, shape: { type: 'string', enum: ['round', 'slot'] }, slotLength: { type: 'number' }, rotation: { type: 'number' }, plated: { type: 'boolean' }, annulus: { type: 'number' }, padNumber: { type: 'string' }, layer: { type: 'string' } }, ['x', 'y', 'diameter']) },
   { name: 'eda_schematic_audit', description: "Geometry audit of the active schematic page (the netlist ERC only judges connectivity): symbols outside the frame, symbols overlapping the title block, body-on-body symbol overlap, off-grid placement, and labels anchored inside a symbol body. Read-only; pair it with eda_netlist_erc before routing.", inputSchema: objectSchema({ grid: { type: 'number' }, includeOk: { type: 'boolean' } }) },
-  { name: 'eda_delivery_checklist', description: "Delivery checklist: run connectivity (eda_netlist_erc), PCB audit + DRC, Gerber export and BOM export in ONE read-only call and report per-step pass/fail with counts. Pass outPath to also write a Markdown report you can hand to a reviewer. Use it instead of claiming a board is finished.", inputSchema: objectSchema({ outPath: { type: 'string' }, pcbDrc: { type: 'boolean' } }) },
+  { name: 'eda_delivery_checklist', description: "Delivery checklist: run connectivity (eda_netlist_erc), PCB audit + DRC, Gerber export and BOM export in ONE read-only call and report per-step pass/fail with counts. It switches to the schematic and the PCB itself (switchDocuments:false keeps the current document and reports the other steps as skipped). verdict is pass / incomplete / fail; pass outPath to also write a Markdown report you can hand to a reviewer.", inputSchema: objectSchema({ outPath: { type: 'string' }, pcbDrc: { type: 'boolean' }, switchDocuments: { type: 'boolean' } }) },
   { name: 'eda_design_intake', description: "Requirement intake for a new board: call it BEFORE placing anything when the request is vague (for example: draw me an X board). Without answers it returns the questions in 6 sections (power, core, IO, mechanical, process, delivery), each marked critical or fallback-able with the reason it changes the drawing; pass answers:{questionId:value} to record them and see what is still missing. Ask the user with ask_user_question for the critical ones instead of guessing.", inputSchema: objectSchema({ answers: { type: 'object', additionalProperties: true }, reset: { type: 'boolean' } }) },
   { name: 'eda_netlist_erc', description: 'Read-only electrical smoke test over the schematic NETLIST (no application DRC needed): duplicate designators, unconnected pins, single-endpoint nets, shorted parts, power rails and decoupling, USB D+/D- pair, crystal (two nets + load caps + reaches the MCU), reset RC, BOOT pull resistor, Type-C CC pull-downs. DRC can be clean while the circuit is still wrong; these failures all show up in the netlist. Pass includeOk:true to see passing checks too.', inputSchema: objectSchema({ includeOk: { type: 'boolean' } }) },
   { name: 'eda_pcb_canvas_origin', description: 'Read (or align) the PCB canvas origin and convert points between the two coordinate spaces. JLCEDA displays CANVAS coordinates in its UI but every API takes DATA coordinates; the two differ by this offset, so a coordinate read off the screen will land somewhere else unless you convert or align. align:true calls setCanvasOrigin(0,0) so the display matches the API.', inputSchema: objectSchema({ align: { type: 'boolean' }, offsetX: { type: 'number' }, offsetY: { type: 'number' }, point: { type: 'object', additionalProperties: true } }) },
@@ -754,6 +754,15 @@ const BRIEF_TAG = '[dsh-eda-spec]'
 function briefBlock(brief) {
   return BRIEF_TAG + ' ' + JSON.stringify(brief)
 }
+/** Sidecar file for the design brief, next to a local project directory. */
+function specFilePath(project) {
+  const dir = String(project?.teamUuid ?? '')
+  const uuid = String(project?.uuid ?? '')
+  if (dir === '' || uuid === '') return ''
+  if (!/^[A-Za-z]:[\\/]/.test(dir) && !dir.startsWith('/')) return ''
+  return join(dir, '.dsh-eda-spec', uuid + '.json')
+}
+
 function parseBriefBlock(description) {
   const text = typeof description === 'string' ? description : ''
   const index = text.indexOf(BRIEF_TAG)
@@ -845,7 +854,11 @@ async function auditPcb(args, timeoutMs) {
   const vias = await pcbPrimitiveList('pcb_PrimitiveVia.getAll', [netFilter, undefined], timeoutMs)
   const pours = await pcbPrimitiveList('pcb_PrimitivePour.getAll', [netFilter, undefined, undefined], timeoutMs)
   const outline = await pcbPrimitiveList('pcb_PrimitivePolyline.getAll', [undefined, PCB_LAYERS.boardOutline, undefined], timeoutMs)
-  const pcbComponents = await pcbPrimitiveList('pcb_PrimitiveComponent.getAll', [undefined, undefined], timeoutMs)
+  // Same call shape as pcb_get_components: with a bare [undefined, undefined] the app
+  // returns an empty list here, which silently disabled the mechanical checks below.
+  const pcbComponents = await callExtension('pcb_PrimitiveComponent.getAll', [resolvePcbLayer(undefined), undefined], timeoutMs)
+    .then((raw) => (Array.isArray(raw) ? raw : []))
+    .catch(() => [])
 
   const violations = []
   const warnings = []
@@ -996,7 +1009,7 @@ async function auditPcb(args, timeoutMs) {
 
   return {
     ok: violations.length === 0,
-    counts: { tracks: tracks.length, vias: vias.length, pours: pours.length, outlinePolylines: outline.length, nets: netNames.length },
+    counts: { tracks: tracks.length, vias: vias.length, pours: pours.length, outlinePolylines: outline.length, nets: netNames.length, componentsRead: pcbComponents.length },
     minWidthByNet: Object.fromEntries([...widthByNet.entries()].map(([net, width]) => [net, { widthMil: width, role: classifyNet(net), suggestedMil: suggestTrackWidthMil(net) }])),
     violations, warnings, checklist, drc,
     rules: {
@@ -2432,25 +2445,33 @@ async function executeTool(name, rawArgs, timeoutMs) {
 
     case 'eda_schematic_audit': {
       const paper = paperOf(args.paper)
+      const frame = paper.frame
+      const frameArea = (frame.right - frame.left) * (frame.top - frame.bottom)
       const rawList = await callExtension('sch_PrimitiveComponent.getAll', [], timeoutMs)
       const list = Array.isArray(rawList) ? rawList.slice(0, 200) : []
       const components = []
+      let droppedSheetPrimitives = 0
       for (let index = 0; index < list.length; index += 1) {
         const entry = list[index] ?? {}
-        const designator = String(entry.designator ?? entry.Designator ?? entry.name ?? ('#' + index))
+        const designator = String(entry.designator ?? entry.Designator ?? entry.Name ?? entry.name ?? ('#' + index))
         const id = String(entry.primitiveId ?? entry.PrimitiveId ?? '')
         let bounds
         if (id !== '') {
-          // Per-symbol box: the batch call returns one box for the whole selection,
-          // which cannot detect symbol-on-symbol overlap.
           const box = await bboxOf([id], timeoutMs)
           if (box !== undefined) bounds = { left: box.minX, right: box.maxX, bottom: box.minY, top: box.maxY }
+        }
+        // Frame / title-block primitives live in the same list and their box is the whole
+        // sheet (measured: one entry reported 0..1170 x 0..825 and then 'overlapped'
+        // every symbol and the title block).
+        if (bounds !== undefined) {
+          const boundsArea = (bounds.right - bounds.left) * (bounds.top - bounds.bottom)
+          if (boundsArea > frameArea * 0.4) { bounds = undefined; droppedSheetPrimitives += 1 }
         }
         components.push({ designator, x: Number(entry.x ?? entry.X ?? 0), y: Number(entry.y ?? entry.Y ?? 0), bounds })
       }
       const report = auditSchematicGeometry({
         components,
-        frame: paper.frame,
+        frame,
         titleBlock: paper.titleBlock,
         grid: args.grid === undefined ? 10 : Number(args.grid),
       })
@@ -2460,68 +2481,128 @@ async function executeTool(name, rawArgs, timeoutMs) {
         counts: report.counts,
         componentCount: report.componentCount,
         boxesRead: components.filter(component => component.bounds !== undefined).length,
+        droppedSheetPrimitives,
         checks,
+        notes: droppedSheetPrimitives > 0
+          ? ['Skipped ' + droppedSheetPrimitives + ' primitive(s) whose box covers the whole sheet (frame/title block); counting them made every symbol look overlapped.']
+          : [],
       }
     }
 
     case 'eda_delivery_checklist': {
-      // One call that proves the board is ready: connectivity, geometry, fabrication
-      // exports. Every step records what it actually returned, so the report can be
-      // handed to a reviewer instead of trusted as a claim.
+      // One call that proves the board is ready. Two of the four steps only work with the
+      // schematic active and two only with the PCB active, so the checklist switches
+      // documents itself (switchDocuments:false keeps whatever is open).
       const steps = []
       const startedAt = new Date().toISOString()
+      const project = await callExtension('dmt_Project.getCurrentProjectInfo', [], timeoutMs).catch(() => null)
+      const boards = Array.isArray(project?.data) ? project.data : []
+      const schematicPage = boards[0]?.schematic?.page?.[0]?.uuid ?? ''
+      const pcbUuid = boards.find((board) => board?.pcb?.uuid)?.pcb?.uuid ?? ''
+      // Document switching used to be the default and hung the call (openDocument + a
+      // page load blocked the following netlist export). Default is now 'run with the
+      // document this step needs active'; switchDocuments:true still tries to switch.
+      const switchDocuments = args.switchDocuments !== false
+      const documentType = async () => {
+        try {
+          const info = await callExtension('dmt_SelectControl.getCurrentDocumentInfo', [], timeoutMs)
+          return Number(info?.documentType)
+        } catch { return NaN }
+      }
+      const activate = async (uuid) => {
+        if (typeof uuid !== 'string' || uuid === '') return false
+        try {
+          await callExtension('dmt_EditorControl.openDocument', [uuid], timeoutMs)
+          // Give the editor a beat before the next API needs the page.
+          await new Promise(resolve => setTimeout(resolve, 1500))
+          return true
+        } catch { return false }
+      }
 
       let netlistErc = null
-      try {
-        const parsedNetlist = await fetchParsedNetlist(timeoutMs)
-        netlistErc = runNetlistErc(parsedNetlist)
-        steps.push({ step: 'netlist-erc', ok: netlistErc.ok, detail: netlistErc.counts, failing: netlistErc.checks.filter(check => check.status === 'fail').map(check => check.id) })
-      } catch (error) {
-        steps.push({ step: 'netlist-erc', ok: false, error: error instanceof Error ? error.message : String(error) })
-      }
-
-      let pcbAudit = null
-      try {
-        pcbAudit = await auditPcb({ drc: args.pcbDrc !== false }, timeoutMs)
-        steps.push({
-          step: 'pcb-audit',
-          ok: Array.isArray(pcbAudit.violations) && pcbAudit.violations.length === 0,
-          detail: { violations: pcbAudit.violations?.length ?? null, warnings: pcbAudit.warnings?.length ?? null, drc: pcbAudit.drc },
-          failing: (pcbAudit.violations ?? []).map(entry => entry.rule),
-        })
-      } catch (error) {
-        steps.push({ step: 'pcb-audit', ok: false, error: error instanceof Error ? error.message : String(error) })
-      }
-
-      let gerber = null
-      try {
-        const payload = await callExtension('pcb_ManufactureData.getGerberFile', [undefined, undefined, undefined, undefined, undefined, undefined], timeoutMs)
-        const bytes = payload && typeof payload === 'object'
-          ? Number(payload.size ?? payload.bytes ?? 0)
-          : (typeof payload === 'string' ? payload.length : 0)
-        gerber = { bytes, ok: bytes > 1000 }
-        steps.push({ step: 'gerber', ok: gerber.ok, detail: { bytes } })
-      } catch (error) {
-        steps.push({ step: 'gerber', ok: false, error: error instanceof Error ? error.message : String(error) })
+      // Step documents: schematic steps need documentType 1, PCB steps need 3.
+      const onSchematic = switchDocuments ? await activate(schematicPage) : (await documentType()) === 1
+      if (!onSchematic) {
+        steps.push({ step: 'netlist-erc', document: 'schematic', ok: false, skipped: 'schematic page is not the active document' })
+        steps.push({ step: 'bom', document: 'schematic', ok: false, skipped: 'schematic page is not the active document' })
+      } else {
+        try {
+          const parsedNetlist = await fetchParsedNetlist(timeoutMs)
+          netlistErc = runNetlistErc(parsedNetlist)
+          steps.push({
+            step: 'netlist-erc',
+            document: 'schematic',
+            ok: netlistErc.ok,
+            detail: netlistErc.counts,
+            failing: netlistErc.checks.filter(check => check.status === 'fail').map(check => check.id),
+          })
+        } catch (error) {
+          steps.push({ step: 'netlist-erc', document: 'schematic', ok: false, error: error instanceof Error ? error.message : String(error) })
+        }
       }
 
       let bom = null
-      try {
-        const payload = await callExtension('sch_ManufactureData.getBomFile', [undefined, 'csv'], timeoutMs)
-        const text = typeof payload === 'string' ? payload : (typeof payload?.text === 'string' ? payload.text : '')
-        const lines = text === '' ? 0 : text.split(/\r?\n/).filter(line => line.trim() !== '').length
-        bom = { rows: Math.max(0, lines - 1), ok: lines > 1 }
-        steps.push({ step: 'bom', ok: bom.ok, detail: { rows: bom.rows } })
-      } catch (error) {
-        steps.push({ step: 'bom', ok: false, error: error instanceof Error ? error.message : String(error) })
+      if (onSchematic) {
+        try {
+          const payload = await callExtension('sch_ManufactureData.getBomFile', [undefined, 'csv'], timeoutMs)
+          const text = typeof payload === 'string' ? payload : (typeof payload?.text === 'string' ? payload.text : '')
+          const lines = text === '' ? 0 : text.split(/\r?\n/).filter(line => line.trim() !== '').length
+          bom = { rows: Math.max(0, lines - 1), ok: lines > 1 }
+          steps.push({ step: 'bom', document: 'schematic', ok: bom.ok, detail: { rows: bom.rows }, ...(bom.ok ? {} : { error: 'no BOM rows exported' }) })
+        } catch (error) {
+          steps.push({ step: 'bom', document: 'schematic', ok: false, error: error instanceof Error ? error.message : String(error) })
+        }
+      }
+      const onPcb = switchDocuments ? await activate(pcbUuid) : (await documentType()) === 3
+      let pcbAudit = null
+      if (!onPcb) {
+        steps.push({ step: 'pcb-audit', document: 'pcb', ok: false, skipped: 'PCB is not the active document' })
+        steps.push({ step: 'gerber', document: 'pcb', ok: false, skipped: 'PCB is not the active document' })
+      } else {
+        try {
+          pcbAudit = await auditPcb({ drc: args.pcbDrc !== false }, timeoutMs)
+          steps.push({
+            step: 'pcb-audit',
+            document: 'pcb',
+            ok: (pcbAudit.violations ?? []).length === 0,
+            detail: { violations: pcbAudit.violations?.length ?? null, warnings: pcbAudit.warnings?.length ?? null, drc: pcbAudit.drc },
+            failing: (pcbAudit.violations ?? []).map(entry => entry.rule),
+          })
+        } catch (error) {
+          steps.push({ step: 'pcb-audit', document: 'pcb', ok: false, error: error instanceof Error ? error.message : String(error) })
+        }
       }
 
-      const failed = steps.filter(step => step.ok !== true)
+      let gerber = null
+      if (onPcb) {
+        try {
+          const payload = await callExtension('pcb_ManufactureData.getGerberFile', [undefined, undefined, undefined, undefined, undefined, undefined], timeoutMs)
+          const bytes = payload && typeof payload === 'object'
+            ? Number(payload.size ?? payload.bytes ?? 0)
+            : (typeof payload === 'string' ? payload.length : 0)
+          gerber = { bytes, ok: bytes > 1000 }
+          steps.push({ step: 'gerber', document: 'pcb', ok: gerber.ok, detail: { bytes } })
+        } catch (error) {
+          steps.push({ step: 'gerber', document: 'pcb', ok: false, error: error instanceof Error ? error.message : String(error) })
+        }
+      }
+
+      const failedSteps = steps.filter(step => step.ok !== true && step.skipped === undefined)
+      const skippedSteps = steps.filter(step => step.ok !== true && step.skipped !== undefined)
+      const verdict = failedSteps.length > 0 ? 'fail' : (skippedSteps.length > 0 ? 'incomplete' : 'pass')
       const report = {
-        ok: failed.length === 0,
+        ok: verdict === 'pass',
+        verdict,
+        failedSteps: failedSteps.map(step => step.step),
+        skippedSteps: skippedSteps.map(step => step.step),
+        next: verdict === 'pass'
+          ? 'Every step passed: the board can be ordered.'
+          : (verdict === 'incomplete'
+            ? 'Run the checklist again with the other document active (' + skippedSteps.map(step => step.document).filter((value, index, all) => all.indexOf(value) === index).join(', ') + ' needed).'
+            : 'Fix the failing steps first; skipped steps are listed separately.'),
         startedAt,
         finishedAt: new Date().toISOString(),
-        steps,
+        documents: { schematicPage, pcb: pcbUuid, switched: switchDocuments },
         netlistErc: netlistErc === null ? null : { ok: netlistErc.ok, counts: netlistErc.counts, componentCount: netlistErc.componentCount, netCount: netlistErc.netCount },
         pcbAudit: pcbAudit === null ? null : { violations: pcbAudit.violations, warnings: pcbAudit.warnings },
         gerber,
@@ -2536,10 +2617,12 @@ async function executeTool(name, rawArgs, timeoutMs) {
           '- 开始：' + report.startedAt,
           '- 结束：' + report.finishedAt,
           '- 结论：' + (report.ok ? 'PASS（可以下单）' : 'FAIL（有未通过项）'),
+          '- 原理图页：' + (schematicPage || '未取到'),
+          '- PCB：' + (pcbUuid || '未取到'),
           '',
-          '| 步骤 | 结果 | 说明 |',
-          '|---|---|---|',
-          ...steps.map(step => '| ' + step.step + ' | ' + (step.ok === true ? 'PASS' : 'FAIL') + ' | ' + JSON.stringify(step.detail ?? step.error ?? {}) + ' |'),
+          '| 步骤 | 文档 | 结果 | 说明 |',
+          '|---|---|---|---|',
+          ...steps.map(step => '| ' + step.step + ' | ' + step.document + ' | ' + (step.ok === true ? 'PASS' : 'FAIL') + ' | ' + JSON.stringify(step.detail ?? step.error ?? {}) + ' |'),
           '',
           '## 电气检查（eda_netlist_erc）',
           '',
@@ -2566,6 +2649,7 @@ async function executeTool(name, rawArgs, timeoutMs) {
       return report
     }
 
+
     case 'eda_design_intake': {
       if (args.reset === true) designBrief = null
       if (designBrief === null) {
@@ -2580,17 +2664,41 @@ async function executeTool(name, rawArgs, timeoutMs) {
       const merged = { ...(designBrief ?? {}), ...answersReport.brief }
       const mergedReport = buildIntake(merged)
       let persisted = false
+      let persistVia = 'none'
+      let persistPath = ''
       if (Object.keys(merged).length > 0) {
         designBrief = merged
         if (answers !== null) {
           try {
             const project = await callExtension('dmt_Project.getCurrentProjectInfo', [], timeoutMs)
+            const projectUuid = String(project?.uuid ?? '')
             const existing = typeof project?.description === 'string' ? project.description : ''
             const index = existing.indexOf(BRIEF_TAG)
             const base = index < 0 ? existing : existing.slice(0, index).trimEnd()
             const next = (base === '' ? '' : base + '\n') + briefBlock(merged)
-            await callExtension('dmt_Project.modifyProjectDescription', [next], timeoutMs)
-            persisted = true
+            // The description write is inert on this build (measured: returns false and
+            // the description stays empty), so fall back to a sidecar file next to the
+            // local project directory and verify whichever path was used.
+            let stored = false
+            if (projectUuid !== '') {
+              try {
+                await callExtension('dmt_Project.modifyProjectDescription', [projectUuid, next], timeoutMs)
+                const readBack = await callExtension('dmt_Project.getCurrentProjectInfo', [], timeoutMs)
+                stored = String(readBack?.description ?? '').includes(BRIEF_TAG)
+                if (stored) persistVia = 'description'
+              } catch { stored = false }
+            }
+            if (!stored) {
+              const sidecar = specFilePath(project)
+              if (sidecar !== '') {
+                await mkdir(join(sidecar, '..'), { recursive: true })
+                await writeFile(sidecar, JSON.stringify({ projectUuid, brief: merged }, null, 2) + '\n')
+                const check = JSON.parse(await readFile(sidecar, 'utf8'))
+                stored = check !== null && typeof check === 'object' && Object.keys(merged).every(key => check.brief?.[key] === merged[key])
+                if (stored) { persistVia = 'file'; persistPath = sidecar }
+              }
+            }
+            persisted = stored === true
           } catch { persisted = false }
         }
       }
@@ -2604,6 +2712,8 @@ async function executeTool(name, rawArgs, timeoutMs) {
         brief: mergedReport.brief,
         hydratedFromProject: answers === null && designBrief !== null,
         persisted,
+        persistVia,
+        persistPath,
         sections: mergedReport.sections.filter(section => section.questions.some(question => mergedReport.brief[question.id] === undefined)),
         next: mergedReport.ready
           ? 'All critical parameters are known: lay out the schematic, then eda_netlist_erc before routing.'
@@ -3065,7 +3175,7 @@ async function executeTool(name, rawArgs, timeoutMs) {
             (firstFailure instanceof Error ? firstFailure.message : String(firstFailure)) + '; retry: ' + detail + '). ' +
             'polygonStage=' + (polygonOk ? 'ok' : 'failed') + ': ' +
             (polygonOk
-              ? 'the app accepted the outline but refused the pour itself, so this is an application limit, not a coordinate problem. ' +
+              ? 'the app accepted the outline but refused the pour itself, and so does the complex polygon the docs require (createComplexPolygon); single and complex polygons, every net/layer/fill combination, all refused, so pour creation is an application limit on this build, not a coordinate problem. ' +
                 'Pour by hand in the PCB editor (覆铜 → select GND → top + bottom); eda_design_audit reports it as a warn until then.'
               : 'the outline polygon was rejected too: check that every point is inside the board outline and flat [x1,y1,...].') +
             ' retried=' + retried)

@@ -1,5 +1,38 @@
 # Changelog
 
+## 1.0.1 — 2026-10-20
+
+1.0.0 的真机回归修掉 4 个 bug（全部由"跑一遍"发现，不是靠读代码）：
+
+1. **原理图几何审计误报 30 对重叠**（`eda_schematic_audit`）
+   `sch_PrimitiveComponent.getAll` 的列表里混着图框/标题栏图元，其包围盒是整张页面（实测 `0..1170 × 0..825`），于是与每个符号"重叠"。现在**丢弃面积超过页面 40% 的图元**并在 `droppedSheetPrimitives` 里报数量；复测：30 对误报 → **0 fail**（31 器件 / 30 个有效包围盒 / 丢弃 1 个）。
+
+2. **参数持久化"报成功但没写"**（`eda_design_intake`）
+   ① `dmt_Project.modifyProjectDescription` 在本机构建上**返回 false、不生效**（与 create/delete/copyProject 同类）；② 我的调用还把文本当成 uuid 传。现在：先按官方签名 `(projectUuid, description)` 写并**回读校验**，失败则落到工程目录侧的**侧车文件** `.dsh-eda-spec/<uuid>.json`，`persisted` 只在真的读回成功后为 true，并新增 `persistVia`（`description` / `file` / `none`）与 `persistPath`。真机复测：`persisted=true via=file`。
+
+3. **PCB 机械检查是死代码**（`eda_design_audit`）
+   `pcb_PrimitiveComponent.getAll([undefined, undefined])` 在该构建上返回**空列表**（同样的 API 在 `pcb_get_components` 里能取到 29 个器件），导致器件重叠 / 出板框两项检查从未执行。改用与 `pcb_get_components` 相同的调用形态，并把 `counts.componentsRead` 暴露出来；复测：`componentsRead: 29`。
+
+4. **交付清单挂死超时**（`eda_delivery_checklist`）
+   自动切文档后紧接着调网表导出会被页面加载阻塞 → MCP 超时。现在切文档后等待 1.5 s；同时把**跳过**与**失败**分开：新增 `verdict`（`pass` / `incomplete` / `fail`）、`skippedSteps`、`failedSteps`、`next`，默认仍自动切文档。真机复测：**一次调用 7.5 s，四步全过 `verdict=pass`**；`switchDocuments:false` 时如实报 `incomplete` 并指出缺哪个文档。
+
+### 回归结果（扩展 0.4.6 / 桥接 1.0.1）
+
+| 项 | 结果 |
+|---|---|
+| `eda_schematic_audit` | ✅ 0 fail / 1 warn（12 个符号偏离 10 单位栅格）/ 1 skip（无标签锚点） |
+| `eda_netlist_erc` | ✅ 15 项全执行，14 pass / 0 fail / 1 warn（USB-C SBU1/SBU2 未接） |
+| `eda_design_intake` 持久化 | ✅ `persisted=true via=file` |
+| `eda_design_audit`（PCB） | ✅ `componentsRead:29`、0 违规 / 4 警告（5V 线宽偏细、无覆铜、无丝印、无定位孔） |
+| `eda_delivery_checklist` | ✅ `verdict=pass`、7.5 s、四步（ERC / BOM / PCB 审计 / Gerber 86.8 KB） |
+| `eda_pcb_canvas_origin` | ✅ 偏移 `0,0`，画布↔数据坐标互转一致 |
+| `eda_pcb_create_pour` | ❌ **仍失败**：单多边形与复杂多边形都被接受，但 `pcb_PrimitivePour.create` 对任何网络/层/填充方式一律拒绝 → 判定为**应用侧限制**（1.0.0 里我写"是我用错 API"，据此修正） |
+
+### 已知遗留（需你决定）
+
+- 侧车目录 `D:\文档\LCEDA-Pro\projects\.dsh-eda-spec\` 是回归测试写入的（1 个 json），清理需要你确认（它在你的工程目录内）。
+- 覆铜只能手工：工具已把失败原因写准，`eda_design_audit` 持续报 `copper-pour` warn。
+
 ## 1.0.0 — 2026-10-20
 
 第一个稳定版。0.7.4 之后这一轮把"能画"推进到"画得对、画得像参考设计、交付有证据"：工具 106 → **109**，单测 6 → **8 套**，线协议 0.4.2 → **0.4.6**。
