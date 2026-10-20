@@ -7,6 +7,12 @@ authoritative list of what the agent can call. Coordinates: schematic/symbol = *
 Design limits enforced by these tools (track widths, via sizes, net naming) are documented in
 [design-rules.md](design-rules.md).
 
+## App control
+
+| Tool | Description | Parameters |
+|---|---|---|
+| `eda_launch` | Launch JLCEDA Pro (EasyEDA Pro), optionally opening a .eprj2/.eprj project, then wait until the bridge extension connects. The executable is resolved from DSH_EDA_EXECUTABLE/JLCEDA_EXECUTABLE, the registry handler the installer registered, conventional install directories, then PATH - so it works on any machine without configuration. | `project?: string, executable?: string, waitForExtension?: boolean, timeoutMs?: integer` |
+
 ## Schematic: query
 
 | Tool | Description | Parameters |

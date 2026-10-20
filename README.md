@@ -107,6 +107,7 @@ after routing.
 | Tool | Purpose |
 |---|---|
 | `eda_status` | Bridge status and connected JLCEDA clients |
+| `eda_launch` | Start JLCEDA Pro (optionally opening a `.eprj2` project) and wait until the extension connects |
 | `eda_search_components` | Search JLCEDA library devices |
 | `eda_place_component` | Place a component/symbol |
 | `eda_place_net_flag` | Place VCC/GND/Power net flag |

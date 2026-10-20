@@ -1,8 +1,11 @@
 // @ts-nocheck -- the bridge is authored as dependency-free JS and bundled by esbuild; runtime tests cover it.
 import { createHash } from 'node:crypto'
+import { execFileSync, spawn } from 'node:child_process'
+import { existsSync, statSync } from 'node:fs'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import type { Socket } from 'node:net'
 import { createInterface } from 'node:readline'
+import { buildLaunchArgs, resolveExecutable, type LaunchProbe } from './eda-launch.ts'
 import {
   ANNULUS_MIN_MM, BOARD_OUTLINE_WIDTH_MIL, MIN_TRACK_WIDTH_MIL, POUR_CLEARANCE_MIN_MIL,
   POUR_CLEARANCE_RECOMMENDED_MIL, SILKSCREEN_HEIGHT_MIN_MM, SILKSCREEN_WIDTH_MIN_MM,
@@ -230,6 +233,7 @@ function objectSchema(properties, required = []) {
 
 const TOOLS = [
   { name: 'eda_status', description: 'Get the dsh-eda-mcp bridge status and how many JLCEDA Pro bridge extensions are connected.', inputSchema: objectSchema({}) },
+  { name: 'eda_launch', description: 'Launch JLCEDA Pro (EasyEDA Pro), optionally opening a .eprj2/.eprj project, then wait until the bridge extension connects. The executable is resolved from DSH_EDA_EXECUTABLE/JLCEDA_EXECUTABLE, the registry handler the installer registered, conventional install directories, then PATH - so it works on any machine without configuration.', inputSchema: objectSchema({ project: { type: 'string' }, executable: { type: 'string' }, waitForExtension: { type: 'boolean' }, timeoutMs: { type: 'integer' } }) },
   { name: 'eda_get_page_info', description: 'Return the current schematic page, the A4 frame range, the title-block keep-out range, and the recommended safe placement areas. All coordinates are MCP units (0.01 inch).', inputSchema: objectSchema({ paper: { type: 'string' } }) },
   { name: 'eda_get_schematic_pages', description: 'List the schematic pages of the current schematic, or fetch one page by uuid.', inputSchema: objectSchema({ pageUuid: { type: 'string' } }) },
   { name: 'eda_search_components', description: 'Search JLCEDA library devices by keyword. Returns candidate components with uuid/libraryUuid needed by eda_place_component.', inputSchema: objectSchema({ keyword: { type: 'string' }, limit: { type: 'integer' } }, ['keyword']) },
@@ -773,6 +777,51 @@ async function auditPcb(args, timeoutMs) {
   }
 }
 
+/**
+ * Real probe for `resolveExecutable`: filesystem existence plus `reg query`.
+ * Kept separate from the pure resolver so the resolution order stays testable.
+ */
+function launchProbe() {
+  const cache = new Map()
+  return {
+    platform: process.platform,
+    env: process.env,
+    exists(path) {
+      try { return statSync(path).isFile() } catch { return false }
+    },
+    registryQuery(key, valueName) {
+      if (process.platform !== 'win32') return undefined
+      const cacheKey = key + '|' + (valueName ?? '')
+      if (cache.has(cacheKey)) return cache.get(cacheKey)
+      let output
+      try {
+        // `reg query <key>` alone prints only the default value, so listing a key
+        // (valueName undefined) needs `/s`; a single value uses `/v`, and the
+        // default value uses `/ve`.
+        const extra = valueName === undefined ? ['/s'] : (valueName === '' ? ['/ve'] : ['/v', valueName])
+        output = execFileSync('reg', ['query', key, ...extra], {
+          encoding: 'utf8', timeout: 5000, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'],
+        })
+      } catch {
+        output = undefined
+      }
+      cache.set(cacheKey, output)
+      return output
+    },
+  }
+}
+
+/** Wait (bounded) until at least one EDA extension reports ready. */
+async function waitForExtensionConnection(timeoutMs) {
+  const started = Date.now()
+  const readyCount = () => [...clients].filter(client => client.ready).length
+  while (Date.now() - started < timeoutMs) {
+    if (readyCount() > 0) return { connected: true, clients: readyCount(), waitedMs: Date.now() - started }
+    await new Promise(resolve => setTimeout(resolve, 500))
+  }
+  return { connected: false, clients: readyCount(), waitedMs: Date.now() - started }
+}
+
 async function clearRoutingBatched(args, type, timeoutMs) {
   if (type === 'connection') throw new Error('eda_pcb_clear_routing: type=connection needs the EDA user interface; use type=all/net with mode=batched')
   const net = args.net === undefined ? undefined : String(args.net)
@@ -896,6 +945,56 @@ async function executeTool(name, rawArgs, timeoutMs) {
           : (typeof extensionVersion === 'string' && extensionVersion !== VERSION
             ? 'The connected EDA extension version differs from the bridge version. Re-import dsh-eda-bridge-extension.zip and restart JLCEDA Pro.'
             : 'ok'),
+      }
+    }
+
+    case 'eda_launch': {
+      const probe = launchProbe()
+      const resolved = resolveExecutable(probe, {
+        executable: args.executable === undefined ? undefined : String(args.executable),
+        project: args.project === undefined ? undefined : String(args.project),
+      })
+      if (resolved === undefined) {
+        throw new Error([
+          'eda_launch: could not find the JLCEDA Pro executable on this machine.',
+          'Set `DSH_EDA_EXECUTABLE` (or the plugin setting edaExecutable) to the full path of lceda-pro.exe.',
+          'Searched: DSH_EDA_EXECUTABLE / JLCEDA_EXECUTABLE, the registry handler registered for .eprj2/.eprj,',
+          'conventional install directories under Program Files / LOCALAPPDATA / the system drive, and PATH.',
+        ].join(' '))
+      }
+
+      const alreadyConnected = [...clients].filter(client => client.ready).length
+      const project = args.project === undefined ? undefined : String(args.project)
+      if (project !== undefined && project !== '') {
+        try { if (!statSync(project).isFile()) throw new Error('not a file') } catch {
+          throw new Error('eda_launch: project "' + project + '" does not exist or is not a file')
+        }
+      }
+
+      const plan = buildLaunchArgs(process.platform, resolved.executable, project)
+      const child = spawn(plan.command, plan.args, { detached: true, stdio: 'ignore', windowsHide: false })
+      child.unref()
+
+      const shouldWait = args.waitForExtension !== false
+      const timeoutMs = Number.isFinite(Number(args.timeoutMs)) ? Math.max(1000, Number(args.timeoutMs)) : 30000
+      const waited = shouldWait
+        ? await waitForExtensionConnection(timeoutMs)
+        : { connected: alreadyConnected > 0, clients: alreadyConnected, waitedMs: 0 }
+
+      return {
+        ok: true,
+        launched: true,
+        pid: child.pid ?? null,
+        executable: resolved.executable,
+        source: resolved.source,
+        project: project ?? null,
+        target: { command: plan.command, args: plan.args },
+        connected: waited.connected,
+        connectedClients: waited.clients,
+        waitedMs: waited.waitedMs,
+        hint: waited.connected
+          ? 'JLCEDA is connected; the eda_* tools can be used now.'
+          : 'The app was started but no EDA extension connected yet. In JLCEDA Pro: 扩展 → DSH MCP → 连接 (and enable “允许外部交互”); the extension must be imported once from dsh-eda-bridge-extension.zip.',
       }
     }
 

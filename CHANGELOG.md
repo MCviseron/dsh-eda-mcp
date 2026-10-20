@@ -1,5 +1,24 @@
 # Changelog
 
+## 未发布（unreleased）
+
+### 新工具 `eda_launch`：一条调用打开嘉立创EDA（可选打开工程）并等扩展连上
+
+- `eda_launch({ project?, executable?, waitForExtension?, timeoutMs? })`：启动 `lceda-pro.exe`；
+  带 `project` 时直接把 `.eprj2/.eprj` 交给应用打开（这条命令行正是官方安装器注册的文件关联命令
+  `"lceda-pro.exe" "%1"`），随后每 500 ms 轮询等待扩展连接（默认 30 s，`waitForExtension:false` 可跳过）。
+  返回 `{ launched, pid, executable, source, project, target, connected, connectedClients, waitedMs, hint }`。
+- **不绑定任何机器**：可执行文件按顺序解析 —— 显式 `executable` 参数 → `DSH_EDA_EXECUTABLE` /
+  `JLCEDA_EXECUTABLE` 环境变量 → 注册表为 `.eprj2/.eprj` 登记打开命令的那个 progid → 常见安装目录
+  （`Program Files`、`Program Files (x86)`、`LOCALAPPDATA\\Programs`、`APPDATA\\Programs`、系统盘、用户目录，
+  含中英文目录名）→ `PATH`。返回值里的 `source` 说明命中了哪一级。
+- 新增配置项 `edaExecutable`（默认空 = 自动探测），由宿主以 `DSH_EDA_EXECUTABLE` 传给桥接子进程。
+- 新增 **22 个单测**（`test/eda-launch.test.ts`）：命令行解析、注册表输出解析（含 `(value not set)` 的排除）、
+  解析优先级（config → env → registry → 安装目录 → PATH）、候选目录生成、`PATH` 分隔符（Windows `;` / 其它 `:`）、
+  以及三平台启动参数。全部用 fake probe 构造，不启动任何进程。
+- 真机只读核对：本机经注册表解析出 `D:\\lceda-pro\\lceda-pro.exe`，`source: "registry"`。
+- 工具总数 82 → **83**；`docs/tools.md` 重新生成（新增 “App control” 分组）。
+
 ## 0.6.2
 
 > **已发布到 npm**（`dsh-eda-mcp@0.6.2`，首个版本）。下面 0.6.1 的内容从未发布过，同批一起带上。

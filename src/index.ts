@@ -20,6 +20,8 @@ export interface EdaMcpConfig {
   announceToAgent?: boolean
   toolCallTimeoutMs?: number
   allowRawApi?: boolean
+  /** Path to lceda-pro.exe; empty lets eda_launch discover it. */
+  edaExecutable?: string
 }
 
 /**
@@ -33,6 +35,8 @@ export const Config = z.object({
   announceToAgent: z.boolean().default(true).volatile(),
   toolCallTimeoutMs: z.number().min(1000).max(300000).default(60000).volatile(),
   allowRawApi: z.boolean().default(true).volatile(),
+  /** Optional path to lceda-pro.exe; empty means "let eda_launch discover it". */
+  edaExecutable: z.string().default('').volatile(),
 })
 
 /** Hooks a settings registration hands to the DSH settings seam. */
@@ -167,6 +171,8 @@ function bridgeLaunchFor(active: EdaMcpConfig) {
       ...runtime.extraEnv,
       DSH_EDA_MCP_ALLOW_RAW_API: allowRawApi ? '1' : '0',
       DSH_EDA_MCP_TOOL_TIMEOUT_MS: String(toolCallTimeoutMs),
+      // eda_launch falls back to the registry / install dirs / PATH when empty.
+      DSH_EDA_EXECUTABLE: typeof active.edaExecutable === 'string' ? active.edaExecutable : '',
     },
     cwd: dirname(BRIDGE_PATH),
     toolCallTimeoutMs,
