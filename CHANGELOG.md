@@ -48,6 +48,30 @@
 另：官方 API `DMT_Project` 只有 `openProject(projectUuid)`（工作区工程按 uuid），**没有按本地路径打开**的接口，所以「用 API 打开本地 .eprj2」当前也做不到。
 
 新增 3 个单测覆盖启动脚本（`@echo off`、含空格的路径加引号、带/不带工程）。
+
+### B 方案落地：工程级 API（列出 / 读取 / 打开 / **新建**）
+
+官方 `DMT_Project` 提供的能力已接入（扩展白名单新增 5 个方法，**线协议版本对升到 0.3.6**，需重新导入 zip）：
+
+| 新工具 | 底层 API | 说明 |
+|---|---|---|
+| `eda_list_projects` | `getAllProjectsUuid` + `getProjectInfo` | 默认把 uuid 解析成工程名（`resolveNames:false` 只列 uuid，`limit` 限制解析数量） |
+| `eda_get_project` | `getCurrentProjectInfo` | 当前打开的工程 |
+| `eda_open_project` | `openProject(uuid)` | 传 `uuid` 直接开；只传 `name` 时先解析（精确匹配优先，其次忽略大小写的包含匹配），失败会列出已知工程名 |
+| `eda_create_project` | `createProject(...)` | **新建工程**，返回 uuid；`open:true` 时顺手打开；应用拒绝时抛错而不是静默成功 |
+
+这意味着「打开本地 `.eprj2` 文件」仍是应用自身的限制（命令行参数被忽略），但**工作区工程**现在可以完全由插件驱动：列出 → 新建 → 打开。
+
+### 应用级基础操作补齐（关闭 / 关标签页 / 导入 / 导出工程）
+
+| 新工具 | 底层 | 说明 |
+|---|---|---|
+| `eda_close` | `taskkill /IM <exe> /T`，超时后 `/F` | **关闭嘉立创EDA**（按解析出的可执行文件名，跨平台：非 Windows 用 `pkill`）；返回关闭前后进程数与剩余数 |
+| `eda_close_document` | `dmt_EditorControl.closeDocument` | 关闭一个编辑器标签页 |
+| `eda_export_project` | `sys_FileManager.getProjectFile` / `getProjectFileByProjectUuid` | 导出工程为文件：给 `outPath` 就直接落盘并返回路径与字节数；不给则只回元数据，`inline:true` 才回 base64 |
+| `eda_import_project` | `sys_FileManager.importProjectByProjectFile` | **导入本地**工程文件（`.eprj2/.epro/…`）到工作区；`open:true` 时导入后立即打开。这就是「打开本地工程文件」的可行路径（应用本身忽略命令行参数） |
+
+扩展新增两个内部助手 `dsh.internal.exportProjectFile` / `importProjectFile`（File ↔ base64 只能在渲染进程内完成），白名单增加 `dmt_EditorControl.closeDocument` 与 `dmt_Project.*`；**线协议版本对 0.3.5 → 0.3.6**，用户需重新导入 zip，否则新工具会报 `API method not allowed`。
 ## 0.6.2
 
 > **已发布到 npm**（`dsh-eda-mcp@0.6.2`，首个版本）。下面 0.6.1 的内容从未发布过，同批一起带上。

@@ -2,9 +2,10 @@
 import { createHash } from 'node:crypto'
 import { execFileSync, spawn } from 'node:child_process'
 import { existsSync, statSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
 import { writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import type { Socket } from 'node:net'
 import { createInterface } from 'node:readline'
@@ -16,7 +17,7 @@ import {
   assertNetName, checkNetName, checkTrackWidth, checkVia, classifyNet, milToMm, suggestTrackWidthMil,
 } from './design-rules.ts'
 
-const VERSION = '0.3.5'
+const VERSION = '0.3.6'
 const WS_PORT = Number(process.env.DSH_EDA_MCP_WS_PORT ?? 39009)
 const WS_HOST = '127.0.0.1'
 const ALLOW_RAW_API = (process.env.DSH_EDA_MCP_ALLOW_RAW_API ?? '1') !== '0'
@@ -236,6 +237,14 @@ function objectSchema(properties, required = []) {
 
 const TOOLS = [
   { name: 'eda_status', description: 'Get the dsh-eda-mcp bridge status and how many JLCEDA Pro bridge extensions are connected.', inputSchema: objectSchema({}) },
+  { name: 'eda_list_projects', description: 'List project UUIDs in the workspace (dmt_Project.getAllProjectsUuid). resolveNames=true (default) also reads getProjectInfo per project so callers can match by friendly name.', inputSchema: objectSchema({ teamUuid: { type: 'string' }, folderUuid: { type: 'string' }, workspaceUuid: { type: 'string' }, resolveNames: { type: 'boolean' }, limit: { type: 'integer' } }) },
+  { name: 'eda_get_project', description: 'Read the current project (dmt_Project.getCurrentProjectInfo): uuid, friendly name, folder/team and other brief fields.', inputSchema: objectSchema({}) },
+  { name: 'eda_open_project', description: 'Open a project by uuid, or by friendly name when only a name is known (the name is resolved through getAllProjectsUuid + getProjectInfo, exact match first, then case-insensitive substring).', inputSchema: objectSchema({ uuid: { type: 'string' }, name: { type: 'string' } }) },
+  { name: 'eda_create_project', description: 'Create a project (dmt_Project.createProject) and return its uuid; open=true (default false) also opens it. friendlyName is required; name and folder/team default to the app defaults.', inputSchema: objectSchema({ friendlyName: { type: 'string' }, name: { type: 'string' }, teamUuid: { type: 'string' }, folderUuid: { type: 'string' }, description: { type: 'string' }, open: { type: 'boolean' } }, ['friendlyName']) },
+  { name: 'eda_close_document', description: 'Close one editor tab (dmt_EditorControl.closeDocument).', inputSchema: objectSchema({ tabId: { type: 'string' } }, ['tabId']) },
+  { name: 'eda_export_project', description: 'Export a project file (sys_FileManager.getProjectFile / getProjectFileByProjectUuid). With outPath the bridge writes the bytes to disk and returns the path; without it the base64 payload is returned only when inline=true.', inputSchema: objectSchema({ uuid: { type: 'string' }, fileName: { type: 'string' }, fileType: { type: 'string', enum: ['epro', 'epro2'] }, outPath: { type: 'string' }, inline: { type: 'boolean' } }) },
+  { name: 'eda_import_project', description: 'Import a local project file (.eprj2/.epro/...) into the workspace (sys_FileManager.importProjectByProjectFile). Returns the import result and, when open=true, opens the imported project.', inputSchema: objectSchema({ path: { type: 'string' }, fileType: { type: 'string' }, open: { type: 'boolean' } }, ['path']) },
+  { name: 'eda_close', description: 'Close JLCEDA Pro gracefully (taskkill /T on Windows, SIGTERM elsewhere), then force-kill if it is still running after waitMs (default 8000). Returns the remaining process count.', inputSchema: objectSchema({ force: { type: 'boolean' }, waitMs: { type: 'integer' } }) },
   { name: 'eda_launch', description: 'Launch JLCEDA Pro (EasyEDA Pro), optionally opening a .eprj2/.eprj project, then wait until the bridge extension connects. The executable is resolved from DSH_EDA_EXECUTABLE/JLCEDA_EXECUTABLE, the registry handler the installer registered, conventional install directories, then PATH - so it works on any machine without configuration.', inputSchema: objectSchema({ project: { type: 'string' }, executable: { type: 'string' }, waitForExtension: { type: 'boolean' }, timeoutMs: { type: 'integer' } }) },
   { name: 'eda_get_page_info', description: 'Return the current schematic page, the A4 frame range, the title-block keep-out range, and the recommended safe placement areas. All coordinates are MCP units (0.01 inch).', inputSchema: objectSchema({ paper: { type: 'string' } }) },
   { name: 'eda_get_schematic_pages', description: 'List the schematic pages of the current schematic, or fetch one page by uuid.', inputSchema: objectSchema({ pageUuid: { type: 'string' } }) },
@@ -817,6 +826,30 @@ function launchProbe() {
   }
 }
 
+/** How many processes currently run that image name (Windows tasklist). */
+function processCountByName(imageName) {
+  if (process.platform !== 'win32') return -1
+  try {
+    const out = execFileSync('tasklist', ['/FI', 'IMAGENAME eq ' + imageName, '/FO', 'CSV', '/NH'], {
+      encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'],
+    })
+    return out.split(/\r?\n/).filter(line => line.trim().startsWith('"')).length
+  } catch {
+    return 0
+  }
+}
+
+/** Ask the app to close (/T closes the renderer children too); force kills it. */
+function terminateByName(imageName, force) {
+  if (process.platform === 'win32') {
+    execFileSync('taskkill', ['/IM', imageName, '/T'].concat(force ? ['/F'] : []), {
+      timeout: 10000, stdio: ['ignore', 'ignore', 'ignore'],
+    })
+    return
+  }
+  execFileSync('pkill', [force ? '-9' : '-TERM', '-f', imageName], { timeout: 10000, stdio: ['ignore', 'ignore', 'ignore'] })
+}
+
 /** Wait (bounded) until at least one EDA extension reports ready. */
 async function waitForExtensionConnection(timeoutMs) {
   const started = Date.now()
@@ -952,6 +985,173 @@ async function executeTool(name, rawArgs, timeoutMs) {
             ? 'The connected EDA extension version differs from the bridge version. Re-import dsh-eda-bridge-extension.zip and restart JLCEDA Pro.'
             : 'ok'),
       }
+    }
+
+    case 'eda_close_document':
+      return await callExtension('dmt_EditorControl.closeDocument', [String(args.tabId ?? '')], timeoutMs)
+
+    case 'eda_export_project': {
+      const result = await callExtension('dsh.internal.exportProjectFile', [
+        args.uuid === undefined ? null : String(args.uuid),
+        args.fileName === undefined ? undefined : String(args.fileName),
+        undefined,
+        args.fileType === undefined ? undefined : String(args.fileType),
+      ], toolTimeout(args, timeoutMs))
+      const base64 = typeof result?.base64 === 'string' ? result.base64 : ''
+      const outPath = args.outPath === undefined ? '' : String(args.outPath).trim()
+      if (outPath !== '') {
+        await writeFile(outPath, Buffer.from(base64, 'base64'))
+        return { ok: true, written: outPath, name: result?.name ?? null, size: base64 === '' ? 0 : Buffer.from(base64, 'base64').length }
+      }
+      if (args.inline !== true) {
+        return { ok: true, name: result?.name ?? null, base64Length: base64.length, hint: 'Pass outPath to write the file, or inline=true to receive the base64 payload.' }
+      }
+      return { ok: true, name: result?.name ?? null, base64 }
+    }
+
+    case 'eda_import_project': {
+      const path = String(args.path ?? '').trim()
+      if (path === '') throw new Error('eda_import_project requires path')
+      let bytes
+      try { bytes = await readFile(path) } catch {
+        throw new Error('eda_import_project: cannot read "' + path + '"')
+      }
+      const imported = await callExtension('dsh.internal.importProjectFile', [
+        bytes.toString('base64'),
+        basename(path),
+        args.fileType === undefined ? undefined : String(args.fileType),
+        undefined,
+      ], toolTimeout(args, timeoutMs))
+      const uuid = typeof imported?.uuid === 'string' ? imported.uuid : (typeof imported === 'string' ? imported : undefined)
+      let opened = false
+      if (args.open === true && uuid !== undefined) {
+        try { opened = (await callExtension('dmt_Project.openProject', [uuid], timeoutMs)) !== false } catch { opened = false }
+      }
+      return { ok: true, imported: true, name: basename(path), size: bytes.length, uuid: uuid ?? null, opened, result: imported }
+    }
+
+    case 'eda_close': {
+      const resolved = resolveExecutable(launchProbe(), {
+        executable: args.executable === undefined ? undefined : String(args.executable),
+      })
+      const imageName = resolved === undefined ? 'lceda-pro.exe' : basename(resolved.executable)
+      const before = processCountByName(imageName)
+      const waitMs = Number.isFinite(Number(args.waitMs)) ? Math.max(1000, Number(args.waitMs)) : 8000
+      let error = null
+      try {
+        terminateByName(imageName, false)
+      } catch (failure) {
+        error = failure instanceof Error ? failure.message : String(failure)
+      }
+      const started = Date.now()
+      let remaining = processCountByName(imageName)
+      while (remaining > 0 && Date.now() - started < waitMs) {
+        await new Promise(resolve => setTimeout(resolve, 500))
+        remaining = processCountByName(imageName)
+      }
+      let forced = false
+      if (remaining > 0) {
+        try {
+          terminateByName(imageName, true)
+          forced = true
+          await new Promise(resolve => setTimeout(resolve, 1500))
+          remaining = processCountByName(imageName)
+        } catch (failure) {
+          error = error ?? (failure instanceof Error ? failure.message : String(failure))
+        }
+      }
+      const connected = [...clients].filter(client => client.ready).length
+      return {
+        ok: remaining <= 0,
+        closed: remaining <= 0,
+        forced,
+        imageName,
+        processesBefore: before,
+        processesAfter: remaining,
+        connectedClients: connected,
+        waitedMs: Date.now() - started,
+        error,
+      }
+    }
+
+    case 'eda_list_projects': {
+      const uuids = await callExtension('dmt_Project.getAllProjectsUuid', [
+        args.teamUuid === undefined ? undefined : String(args.teamUuid),
+        args.folderUuid === undefined ? undefined : String(args.folderUuid),
+        args.workspaceUuid === undefined ? undefined : String(args.workspaceUuid),
+      ], timeoutMs)
+      const list = Array.isArray(uuids) ? uuids.map(String) : []
+      if (args.resolveNames === false) return { count: list.length, uuids: list }
+      const limit = Number.isFinite(Number(args.limit)) ? Math.max(1, Number(args.limit)) : list.length
+      const projects = []
+      for (const uuid of list.slice(0, limit)) {
+        try {
+          projects.push(summarizePrimitive(await callExtension('dmt_Project.getProjectInfo', [uuid], timeoutMs)) ?? { uuid })
+        } catch {
+          projects.push({ uuid })
+        }
+      }
+      return { count: list.length, resolved: projects.length, projects }
+    }
+
+    case 'eda_get_project':
+      return await callExtension('dmt_Project.getCurrentProjectInfo', [], timeoutMs)
+
+    case 'eda_open_project': {
+      let uuid = args.uuid === undefined ? '' : String(args.uuid).trim()
+      const name = args.name === undefined ? '' : String(args.name).trim()
+      let matched = null
+      if (uuid === '') {
+        if (name === '') throw new Error('eda_open_project requires uuid or name')
+        const uuids = await callExtension('dmt_Project.getAllProjectsUuid', [undefined, undefined, undefined], timeoutMs)
+        const candidates = Array.isArray(uuids) ? uuids.map(String) : []
+        const resolved = []
+        for (const candidate of candidates) {
+          try {
+            const info = await callExtension('dmt_Project.getProjectInfo', [candidate], timeoutMs)
+            const record = asRecord(info)
+            const friendly = String(pickValue(record, 'FriendlyName', 'friendlyName', 'Name', 'name') ?? '')
+            resolved.push({ uuid: candidate, friendly })
+          } catch {
+            resolved.push({ uuid: candidate, friendly: '' })
+          }
+        }
+        const exact = resolved.find(item => item.friendly === name)
+        const fuzzy = resolved.find(item => item.friendly.toLowerCase().includes(name.toLowerCase()))
+        matched = exact ?? fuzzy ?? null
+        if (matched === null) {
+          throw new Error('eda_open_project: no project matches "' + name + '"; known names: ' +
+            resolved.map(item => item.friendly || item.uuid).slice(0, 20).join(', '))
+        }
+        uuid = matched.uuid
+      }
+      const opened = await callExtension('dmt_Project.openProject', [uuid], timeoutMs)
+      const current = await callExtension('dmt_Project.getCurrentProjectInfo', [], timeoutMs).catch(() => undefined)
+      return { opened: opened !== false, uuid, matched, current: current === undefined ? null : summarizePrimitive(current) }
+    }
+
+    case 'eda_create_project': {
+      const friendlyName = String(args.friendlyName ?? '').trim()
+      if (friendlyName === '') throw new Error('eda_create_project requires friendlyName')
+      const uuid = await callExtension('dmt_Project.createProject', [
+        friendlyName,
+        args.name === undefined ? undefined : String(args.name),
+        args.teamUuid === undefined ? undefined : String(args.teamUuid),
+        args.folderUuid === undefined ? undefined : String(args.folderUuid),
+        args.description === undefined ? undefined : String(args.description),
+      ], timeoutMs)
+      if (typeof uuid !== 'string' || uuid === '') {
+        throw new Error('eda_create_project: the app returned no project uuid (it may have shown a dialog or rejected the name)')
+      }
+      let opened = false
+      if (args.open === true) {
+        try {
+          opened = (await callExtension('dmt_Project.openProject', [uuid], timeoutMs)) !== false
+        } catch {
+          opened = false
+        }
+      }
+      return { created: true, uuid, friendlyName, opened }
     }
 
     case 'eda_launch': {

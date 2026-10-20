@@ -108,6 +108,9 @@ after routing.
 |---|---|
 | `eda_status` | Bridge status and connected JLCEDA clients |
 | `eda_launch` | Start JLCEDA Pro (optionally opening a `.eprj2` project) and wait until the extension connects |
+| `eda_list_projects` / `eda_get_project` | List workspace projects (uuid + name) / read the current project |
+| `eda_open_project` | Open a project by uuid, or by friendly name |
+| `eda_create_project` | Create a project and return its uuid (optionally open it) |
 | `eda_search_components` | Search JLCEDA library devices |
 | `eda_place_component` | Place a component/symbol |
 | `eda_place_net_flag` | Place VCC/GND/Power net flag |

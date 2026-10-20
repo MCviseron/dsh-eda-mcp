@@ -7,10 +7,23 @@ authoritative list of what the agent can call. Coordinates: schematic/symbol = *
 Design limits enforced by these tools (track widths, via sizes, net naming) are documented in
 [design-rules.md](design-rules.md).
 
+## Project
+
+| Tool | Description | Parameters |
+|---|---|---|
+| `eda_list_projects` | List project UUIDs in the workspace (dmt_Project.getAllProjectsUuid). resolveNames=true (default) also reads getProjectInfo per project so callers can match by friendly name. | `teamUuid?: string, folderUuid?: string, workspaceUuid?: string, resolveNames?: boolean, limit?: integer` |
+| `eda_get_project` | Read the current project (dmt_Project.getCurrentProjectInfo): uuid, friendly name, folder/team and other brief fields. | `` |
+| `eda_open_project` | Open a project by uuid, or by friendly name when only a name is known (the name is resolved through getAllProjectsUuid + getProjectInfo, exact match first, then case-insensitive substring). | `uuid?: string, name?: string` |
+| `eda_create_project` | Create a project (dmt_Project.createProject) and return its uuid; open=true (default false) also opens it. friendlyName is required; name and folder/team default to the app defaults. | `friendlyName: string, name?: string, teamUuid?: string, folderUuid?: string, description?: string, open?: boolean` |
+| `eda_close_document` | Close one editor tab (dmt_EditorControl.closeDocument). | `tabId: string` |
+| `eda_export_project` | Export a project file (sys_FileManager.getProjectFile / getProjectFileByProjectUuid). With outPath the bridge writes the bytes to disk and returns the path; without it the base64 payload is returned only when inline=true. | `uuid?: string, fileName?: string, fileType?: string, outPath?: string, inline?: boolean` |
+| `eda_import_project` | Import a local project file (.eprj2/.epro/...) into the workspace (sys_FileManager.importProjectByProjectFile). Returns the import result and, when open=true, opens the imported project. | `path: string, fileType?: string, open?: boolean` |
+
 ## App control
 
 | Tool | Description | Parameters |
 |---|---|---|
+| `eda_close` | Close JLCEDA Pro gracefully (taskkill /T on Windows, SIGTERM elsewhere), then force-kill if it is still running after waitMs (default 8000). Returns the remaining process count. | `force?: boolean, waitMs?: integer` |
 | `eda_launch` | Launch JLCEDA Pro (EasyEDA Pro), optionally opening a .eprj2/.eprj project, then wait until the bridge extension connects. The executable is resolved from DSH_EDA_EXECUTABLE/JLCEDA_EXECUTABLE, the registry handler the installer registered, conventional install directories, then PATH - so it works on any machine without configuration. | `project?: string, executable?: string, waitForExtension?: boolean, timeoutMs?: integer` |
 
 ## Schematic: query

@@ -161,7 +161,10 @@ DSH 桥接服务开着但 EDA 没有连上时，有三种入口：
 | 工具 | 用途 |
 |---|---|
 | `eda_status` | 桥接状态、端口、已连接 EDA 客户端数 |
-| `eda_launch` | 启动嘉立创EDA（可直接打开 `.eprj2` 工程）并等待扩展连上 |
+| `eda_launch` | 启动嘉立创EDA（命令行工程参数被应用忽略，见 docs/tools.md）并等待扩展连上 |
+| `eda_list_projects` / `eda_get_project` | 列出工作区工程（uuid + 名称）/ 读取当前工程 |
+| `eda_open_project` | 按 uuid 或工程名打开工程 |
+| `eda_create_project` | 新建工程并返回 uuid（可选立即打开） |
 | `eda_get_page_info` | 当前页、A4 图框、标题栏、安全区 |
 | `eda_get_schematic_pages` | 原理图图页列表 / 按 uuid 查询 |
 | `eda_search_components` | 搜索嘉立创库器件 |

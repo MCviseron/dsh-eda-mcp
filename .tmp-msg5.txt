@@ -1,0 +1,25 @@
+feat(tools): project and app basics (create/open/list, import/export, close)
+
+Wire contract pair 0.3.5 -> 0.3.6 (extension allow-list changed; re-import the zip).
+
+Project (dmt_Project):
+- eda_list_projects: getAllProjectsUuid, optionally resolved through getProjectInfo
+- eda_get_project: getCurrentProjectInfo
+- eda_open_project: by uuid, or by friendly name (exact match first, then
+  case-insensitive substring; the error lists the known names)
+- eda_create_project: createProject, returns the uuid, open=true also opens it
+- eda_import_project: local .eprj2/.epro -> importProjectByProjectFile (this is the
+  workable answer to 'open a local file', since the app ignores the CLI argument)
+- eda_export_project: getProjectFile/getProjectFileByProjectUuid, writes outPath
+  or returns metadata; base64 only with inline=true
+- eda_close_document: dmt_EditorControl.closeDocument
+
+App (bridge side, no extension needed):
+- eda_close: taskkill /IM <resolved exe> /T, force after waitMs (pkill elsewhere);
+  reports processes before/after so the caller can verify
+
+Extension: two internal helpers move project files across the WebSocket boundary
+(File <-> base64) because the File object cannot be serialized, plus the allow-list
+entries for dmt_Project.*, closeDocument and sys_FileManager.*.
+
+91 tools; docs/tools.md regenerated (Project + App control groups).

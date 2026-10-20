@@ -133,12 +133,18 @@ function dshEdaMcpStatus() {
     'dmt_Schematic.getSchematicInfo',
     'dmt_Schematic.getSchematicPageInfo',
     'dmt_Schematic.getAllSchematicPagesInfo',
+    'dmt_Project.getAllProjectsUuid',
+    'dmt_Project.getProjectInfo',
+    'dmt_Project.getCurrentProjectInfo',
+    'dmt_Project.openProject',
+    'dmt_Project.createProject',
     'dmt_Board.createBoard',
     'dmt_Board.getAllBoardsInfo',
     'dmt_Board.getCurrentBoardInfo',
     'dmt_EditorControl.getSplitScreenTree',
     'dmt_EditorControl.getTabsBySplitScreenId',
     'dmt_EditorControl.openDocument',
+    'dmt_EditorControl.closeDocument',
     'dmt_EditorControl.activateDocument',
     'dmt_EditorControl.zoomToRegion',
     'dmt_EditorControl.zoomToAllPrimitives',
@@ -312,6 +318,39 @@ function dshEdaMcpStatus() {
     if (typeof message.id === 'undefined') return;
     if (typeof message.method !== 'string') {
       throw new Error('API method not allowed: ' + String(message.method));
+    }
+    // Internal helper: export a project as a File and hand it back as base64
+    // (the File object cannot cross the WebSocket boundary).
+    if (message.method === 'dsh.internal.exportProjectFile') {
+      var expArgs = message.args || [];
+      if (typeof eda === 'undefined' || !eda.sys_FileManager) {
+        throw new Error('dsh.internal.exportProjectFile: sys_FileManager is not available');
+      }
+      var expUuid = expArgs[0] == null ? undefined : String(expArgs[0]);
+      var expFile = expUuid === undefined
+        ? await eda.sys_FileManager.getProjectFile(optional(expArgs[1]), optional(expArgs[2]), optional(expArgs[3]))
+        : await eda.sys_FileManager.getProjectFileByProjectUuid(expUuid, optional(expArgs[1]), optional(expArgs[2]), optional(expArgs[3]));
+      if (!expFile) throw new Error('dsh.internal.exportProjectFile: the app returned no file (project not open, or the export was cancelled)');
+      var expBuffer = new Uint8Array(await expFile.arrayBuffer());
+      var expBinary = '';
+      for (var expIndex = 0; expIndex < expBuffer.length; expIndex += 1) expBinary += String.fromCharCode(expBuffer[expIndex]);
+      return { name: expFile.name || String(expArgs[1] || 'project.epro'), size: expBuffer.length, base64: btoa(expBinary) };
+    }
+    // Internal helper: import a project from base64 (local .eprj2/.epro handed over
+    // by the bridge) by rebuilding the File the official API expects.
+    if (message.method === 'dsh.internal.importProjectFile') {
+      var impArgs = message.args || [];
+      if (typeof eda === 'undefined' || !eda.sys_FileManager) {
+        throw new Error('dsh.internal.importProjectFile: sys_FileManager is not available');
+      }
+      var impBinary = atob(String(impArgs[0] || ''));
+      var impBytes = new Uint8Array(impBinary.length);
+      for (var impIndex = 0; impIndex < impBinary.length; impIndex += 1) impBytes[impIndex] = impBinary.charCodeAt(impIndex);
+      var impFile = new File([impBytes], String(impArgs[1] || 'import.eprj2'), { type: 'application/octet-stream' });
+      var impResult = await eda.sys_FileManager.importProjectByProjectFile(
+        impFile, optional(impArgs[2]), undefined, optional(impArgs[3])
+      );
+      return toJsonable(impResult === undefined ? { imported: true } : impResult);
     }
     // Internal helper: build an IPCB_Polygon from a raw source array and create
     // a PCB region (used for the board outline).
