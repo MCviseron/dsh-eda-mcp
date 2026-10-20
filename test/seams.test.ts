@@ -15,6 +15,20 @@ import { pathToFileURL } from 'node:url'
 const seamRoot = process.env.DSH_SEAM_ROOT ?? process.cwd()
 let failures = 0
 
+// --- extension version single source of truth ----------------------------
+// The extension announces its version over the WebSocket. It once carried a
+// hand-written constant that went stale (manifest 0.3.6, runtime 0.3.5), so the
+// bridge reported a version mismatch no matter what was imported. The build
+// injects the manifest version into the placeholder; keep it that way.
+{
+  const extensionDir = join(process.cwd(), 'jlc-extension')
+  const manifest = JSON.parse(readFileSync(join(extensionDir, 'extension.json'), 'utf8')) as { version: string }
+  const bridgeSource = readFileSync(join(extensionDir, 'api-bridge.js'), 'utf8')
+  report('extension manifest declares a version', /^\d+\.\d+\.\d+$/.test(manifest.version), manifest.version)
+  report('api-bridge.js keeps the version placeholder', bridgeSource.includes('__EXTENSION_VERSION__'))
+  report('api-bridge.js has no hard-coded version constant', !/var VERSION = '\d/.test(bridgeSource))
+}
+
 function report(label: string, ok: boolean, detail = ''): void {
   if (!ok) failures += 1
   console.log(`${ok ? 'PASS' : 'FAIL'} ${label}${detail === '' ? '' : ' — ' + detail}`)

@@ -1,6 +1,6 @@
 /* eslint-disable */
 /**
- * dsh-eda-mcp — JLCEDA Pro bridge extension (v0.3.5).
+ * dsh-eda-mcp — JLCEDA Pro bridge extension (version injected from extension.json).
  *
  * Connects to the local dsh-eda-mcp bridge process over WebSocket and executes
  * a strict allow-list of official EasyEDA Pro extension APIs. Import through:
@@ -8,7 +8,7 @@
  *   then enable "Allow interactive with external" for this extension.
  */
 var DSH_EDA_MCP = {
-  version: '0.3.5',
+  version: '__EXTENSION_VERSION__',
   connect: null,
   disconnect: null,
   status: null,
@@ -37,7 +37,9 @@ function dshEdaMcpStatus() {
 (function () {
   'use strict';
 
-  var VERSION = '0.3.5';
+  // Injected from extension.json at build time: a hand-maintained constant here
+  // went stale once and made the bridge report a version mismatch forever.
+  var VERSION = '__EXTENSION_VERSION__';
   var WS_ID = 'dsh-eda-mcp-bridge';
   var WS_PORT = 39009;
   var WS_URL = 'ws://127.0.0.1:' + WS_PORT + '/ws';

@@ -1,6 +1,7 @@
 import { build } from 'esbuild'
 import { execFileSync } from 'node:child_process'
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 const sharedExternal = [
@@ -107,13 +108,30 @@ await writeFile('lib/client.js', wrapped, 'utf8')
 // Package the JLCEDA Pro bridge extension as a zip for the "Extensions →
 // Import" flow. PowerShell Compress-Archive is available on the Windows
 // desktop this plugin targets.
+// The extension reports its version over the WebSocket, and a hand-maintained
+// constant there silently went stale once (the manifest said 0.3.6 while the
+// runtime kept announcing 0.3.5). The version now lives only in extension.json:
+// api-bridge.js carries a placeholder that is substituted into a staged copy, so
+// the two can never disagree again.
+const extensionVersion = JSON.parse(await readFile(join('jlc-extension', 'extension.json'), 'utf8')).version
+const versionPlaceholder = '__EXTENSION_VERSION__'
+const stage = join(tmpdir(), 'dsh-eda-extension-' + Date.now())
+await cp('jlc-extension', stage, { recursive: true })
+const stagedBridge = join(stage, 'api-bridge.js')
+const bridgeSource = await readFile(stagedBridge, 'utf8')
+if (!bridgeSource.includes(versionPlaceholder)) {
+  throw new Error('jlc-extension/api-bridge.js must use the ' + versionPlaceholder + ' placeholder for its version')
+}
+await writeFile(stagedBridge, bridgeSource.split(versionPlaceholder).join(extensionVersion), 'utf8')
+
 const zipTarget = 'dsh-eda-bridge-extension.zip'
 await rm(zipTarget, { force: true })
 execFileSync('powershell', [
   '-NoProfile',
   '-Command',
-  `Compress-Archive -Path '${join(process.cwd(), 'jlc-extension', '*')}' -DestinationPath '${join(process.cwd(), zipTarget)}' -Force`,
+  `Compress-Archive -Path '${join(stage, '*')}' -DestinationPath '${join(process.cwd(), zipTarget)}' -Force`,
 ], { stdio: 'inherit' })
+await rm(stage, { recursive: true, force: true })
 
 console.log('built lib/index.js, lib/client.js, lib/bridge.mjs, and ' + zipTarget)
 

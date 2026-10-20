@@ -85,6 +85,15 @@
 - `eda_get_project` 在没打开工程时返回 `{ project: null, hint }`，不再是空响应。
 
 实测记录（重要）：用户在 0.3.6 时导入 zip 后，`eda_status` 仍报 `extensionVersion: 0.3.5` 且 `dmt_Project.getAllProjectsUuid` 返回 `API method not allowed` —— **导入没有替换旧副本**，这就是上面 hint 里写明「先删除旧扩展再导入并重启」的原因。
+
+### 修掉「导入后仍报 0.3.5」的根因：扩展里有硬编码版本常量
+
+`jlc-extension/api-bridge.js` 里有两处**手写**版本（`var VERSION = '0.3.5'` 与 `version: '0.3.5'`），连接时上报的就是它们；而 `extension.json` 才是导入清单里的版本。于是出现：EDA 扩展列表显示 **0.3.6**，`eda_status` 却永远报 **0.3.5**、`versionMismatch: true`。
+
+修复：版本**只在 `extension.json` 里维护**，`api-bridge.js` 改为占位符 `__EXTENSION_VERSION__`，构建时把清单版本注入到 zip 里的副本（源码保持占位符，产物永远一致）；若源码丢了占位符，构建直接报错。
+
+- 新增 3 条单测（清单版本格式合法、占位符存在、**不允许**出现硬编码版本常量）。
+- 复发即构建失败，不会再出现「清单与运行时报不同版本」。
 ## 0.6.2
 
 > **已发布到 npm**（`dsh-eda-mcp@0.6.2`，首个版本）。下面 0.6.1 的内容从未发布过，同批一起带上。
