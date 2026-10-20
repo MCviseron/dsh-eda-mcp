@@ -2142,6 +2142,13 @@ async function executeTool(name, rawArgs, timeoutMs) {
       const raw = typeof payload === 'string'
         ? payload
         : (payload !== null && typeof payload === 'object' && typeof payload.text === 'string' ? payload.text : '')
+      // Measured: with the PCB active the export answers null and this used to return
+      // { bom: '', encoding: 'unknown' }, which reads like an empty BOM instead of the
+      // real cause. Say it plainly, like eda_export_netlist does.
+      if (raw === '') {
+        throw new Error('eda_export_bom: no BOM data (the schematic page must be the active document; ' +
+          'call eda_get_active_document, then eda_open_document on the schematic page and retry)')
+      }
       // The extension (0.4.1+) decodes text payloads with the encoding named by their BOM;
       // decodeTextPayload stays as a fallback for older extensions.
       const encoding = payload !== null && typeof payload === 'object' ? payload.encoding : undefined
