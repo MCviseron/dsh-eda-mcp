@@ -59,6 +59,8 @@ pnpm add dsh-eda-mcp            # 或用 Web GUI 的插件管理器安装
 
 校验：`eda_extension_package` 报告插件自带的 zip（路径、字节数、sha256）；传 `download: true` 时会把服务器那份取回来逐字节比对（`verified: match | mismatch`），一致才存到 `outDir`（默认临时目录），不一致则不落盘并提示重新上传。zip 构建已改为可复现，同样的源码永远得到同一个 sha256。
 
+下载服务器对 `/eda/` 限流 **5 次/分钟/IP**（burst 5，回环地址豁免）：被限流时工具返回 `verified: unverified` 且 `httpStatus: 429` —— 这是限流，不是校验不一致，等一分钟重试即可。
+
 ### 1. 安装到 DSH Web profile
 
 ```sh

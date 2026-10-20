@@ -2,6 +2,16 @@
 
 ## 未发布（unreleased）
 
+### `/eda/` 下载限流（服务器侧，5 次/分钟/IP）
+
+服务器新增 nginx 令牌桶限流：`limit_req_zone $eda_rate_key zone=eda_download:10m rate=5r/m`，`burst=5 nodelay`，超限返回 **429** 并带可读响应体；`127.0.0.1`/`::1` 用 `geo` 置空 key 白名单放行，服务器自查与上传校验不会被限流。区域配置在 `/etc/nginx/conf.d/eda-ratelimit.conf`，限流指令在 `/eda/` location 内。
+
+- 实测：连续请求 → 前 6 次 `200`，第 7 次起 `429`；被限流期间 `/dreamspeedrun/` 仍 `200`、`/files/` 仍 `403`（未受影响）。
+- `eda_extension_package` 遇 `429` 时返回 `verified: unverified` + `httpStatus: 429` 并明确说明"是限流，不是校验不一致"（真机触发验证过）；`verified` 绝不会把限流误报成 `mismatch`。
+- 记录一个事实：nginx **不支持 `rate=20r/h`**（单位只有 `r/s`、`r/m`，实测 `invalid rate`），所以按你的决定改为 `5r/m`。
+
+
+
 ### 扩展 zip 的下载与校验（线协议不变 0.4.9）
 
 之前只有"本地那份"和"服务器那份"，**没有任何东西能证明二者一致**，也没有从服务器下载的能力：

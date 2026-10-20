@@ -55,6 +55,10 @@ mismatch`). On a match it saves the file to `outDir` (default: the temp director
 writes nothing and tells you to re-upload. The zip build is reproducible, so equal sources always
 produce the same sha256.
 
+The download server throttles `/eda/` to 5 requests/minute per IP (burst 5, loopback exempt), so
+a `429` shows up as `verified: 'unverified'` with `httpStatus: 429` — that is throttling, not a
+checksum mismatch; wait a minute and retry.
+
 ### 1. Install into the DSH web profile
 
 ```sh

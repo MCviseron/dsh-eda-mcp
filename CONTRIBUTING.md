@@ -127,6 +127,18 @@ The directory is served by one additive `location /eda/` block in
 `/etc/nginx/conf.d/voice.conf`; adding or replacing files needs no nginx change and no
 reload. Keep every other part of that server untouched.
 
+### Rate limit
+
+`/eda/` is throttled to **5 requests/minute per IP with burst 5** (nginx `limit_req`,
+`rate=5r/m`): six requests pass immediately, the seventh answers `429` with a readable body.
+`127.0.0.1` and `::1` are exempt (geo key is empty), so server-side checks never throttle.
+The zone lives in `/etc/nginx/conf.d/eda-ratelimit.conf`, the limit itself inside the `/eda/`
+location; changing the rate needs `nginx -t` plus a reload.
+
+Verifying an upload from an office IP can therefore hit the limit: `eda_extension_package`
+reports that as `verified: 'unverified'` with `httpStatus: 429` — wait about a minute and
+retry instead of suspecting the artifact. A `429` is never a checksum mismatch.
+
 Publishing to npm is documented step by step in [`docs/release.md`](docs/release.md):
 first release is manual (2FA / staged publishing), afterwards the `publish`
 workflow releases on every `v*` tag through npm trusted publishing (OIDC, no

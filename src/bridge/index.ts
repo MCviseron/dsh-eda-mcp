@@ -2414,7 +2414,17 @@ async function executeTool(name, rawArgs, timeoutMs) {
       if (args.download !== true) return report
       const response = await fetch(url, { signal: AbortSignal.timeout(30000) })
       if (!response.ok) {
-        return { ...report, verified: 'unverified', error: 'download failed: HTTP ' + response.status + ' from ' + url }
+        // 429 is the download server's rate limit (5 req/min per IP), not a broken artifact:
+        // say so, otherwise the caller retries in a loop and never succeeds.
+        const throttled = response.status === 429
+        return {
+          ...report,
+          verified: 'unverified',
+          httpStatus: response.status,
+          error: throttled
+            ? 'the download server throttled this IP (HTTP 429, 5 downloads/min per IP — burst 5). Wait about a minute and retry; nothing is wrong with the zip or the upload.'
+            : 'download failed: HTTP ' + response.status + ' from ' + url,
+        }
       }
       const remoteBytes = new Uint8Array(await response.arrayBuffer())
       const remoteSha256 = sha256Of(remoteBytes)
