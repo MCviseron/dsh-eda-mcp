@@ -7,7 +7,7 @@
  * output is fed as text, so the cases below run identically on any machine.
  */
 import {
-  buildLaunchArgs, decodeRegistryOutput, envCandidates, parseExecutableFromCommand, parseRegStringValue,
+  buildLaunchArgs, buildLaunchScript, decodeRegistryOutput, envCandidates, parseExecutableFromCommand, parseRegStringValue,
   parseRegValueNames, pathCandidates, registryCandidates, resolveExecutable,
   type LaunchProbe,
 } from '../src/bridge/eda-launch.ts'
@@ -103,6 +103,12 @@ check('blank project is ignored', buildLaunchArgs('win32', 'X.exe', '   '), { co
 check('macOS opens the app bundle', buildLaunchArgs('darwin', '/Applications/LCEDA Pro.app'), { command: 'open', args: ['-a', '/Applications/LCEDA Pro.app'] })
 check('macOS opens the document', buildLaunchArgs('darwin', '/Applications/LCEDA Pro.app', '/p/a.eprj2'), { command: 'open', args: ['-a', '/Applications/LCEDA Pro.app', '/p/a.eprj2'] })
 check('linux runs the binary', buildLaunchArgs('linux', '/opt/lceda-pro', '/p/a.eprj2'), { command: '/opt/lceda-pro', args: ['/p/a.eprj2'] })
+
+// --- Windows hand-off script (explorer launch) ---------------------------
+const scriptLines = buildLaunchScript('D:\\lceda-pro\\lceda-pro.exe').split('\r\n')
+check('script starts with echo off', scriptLines[0], '@echo off')
+check('script starts the app', scriptLines[1], 'start "" "D:\\lceda-pro\\lceda-pro.exe"')
+check('script with a project quotes both paths', buildLaunchScript('C:\\a b\\lceda-pro.exe', 'D:\\p q\\x.eprj2').split('\r\n')[1], 'start "" "C:\\a b\\lceda-pro.exe" "D:\\p q\\x.eprj2"')
 
 console.log(failures === 0 ? '\nALL PASS' : `\n${failures} FAILED`)
 process.exit(failures === 0 ? 0 : 1)

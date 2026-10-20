@@ -28,6 +28,26 @@
 - **编码**：`reg.exe` 按控制台代码页输出（中文 Windows 是 GBK），而 progid 名是中文；按 UTF-8 解码会变成替换字符，拼不回注册表键。新增 `decodeRegistryOutput()`：UTF-8 解码出现替换字符时改用 `TextDecoder('gbk')`（两者都随宿主 Node 提供）。已加 3 个单测（GBK 字节、纯 ASCII、合法 UTF-8 不被二次解码）。
 - 设置卡片新增「嘉立创EDA 可执行文件（可选）」输入框（`edaExecutable`，留空即自动探测），中英文案齐备。
 - 真机结果：可执行文件**经注册表自动解析**为 `D:\lceda-pro\lceda-pro.exe`（`source: registry`），`eda_launch` 成功 spawn 并返回 pid；但本机 `lceda-pro.exe` 启动后 **8 秒内以退出码 0 自行退出**，且用 PowerShell `Start-Process`（官方快捷方式同参数、同工作目录）复现同样现象、`debug.log` 未更新、无子进程残留 —— 说明插件侧调用正确，问题在应用/环境，待确认。
+
+### `eda_launch` 真机结论：**能打开 EDA，但打不开工程**（应用忽略命令行参数）
+
+实验（同一台机器、同一 exe）：
+
+| 启动方式 | 结果 |
+|---|---|
+| 桥接直接 `spawn` / PowerShell `Start-Process`（都带工程参数） | 进程立刻以退出码 0 结束，无窗口、无子进程、`debug.log` 不更新 |
+| **`explorer.exe <exe>` 交接给桌面外壳** | ✅ **5 个进程 + 窗口正常**，扩展 9 s 内连上（`connected: true`） |
+| 带工程参数（`explorer` 交接，脚本里 `start "" "exe" "project"`） | 应用启动成功，但活动文档仍是 **HOME** → **参数被忽略** |
+| 已运行实例 + 再传工程路径 | 同上，仍 HOME |
+
+因此实现改为：**Windows 上把启动交给 explorer**（写一个临时 `.cmd`，内容是 `start "" "<exe>" "<project>"`，再由 `explorer.exe` 执行）—— 这与双击同上下文，已实测可用；其他平台仍直接 spawn。返回值新增：
+
+- `via`: `explorer` / `direct`（走了哪条路）
+- `projectOpenedByArgument: false` 与 `projectNote`：明确告知**工程未被命令行打开**，需在应用内打开
+
+另：官方 API `DMT_Project` 只有 `openProject(projectUuid)`（工作区工程按 uuid），**没有按本地路径打开**的接口，所以「用 API 打开本地 .eprj2」当前也做不到。
+
+新增 3 个单测覆盖启动脚本（`@echo off`、含空格的路径加引号、带/不带工程）。
 ## 0.6.2
 
 > **已发布到 npm**（`dsh-eda-mcp@0.6.2`，首个版本）。下面 0.6.1 的内容从未发布过，同批一起带上。

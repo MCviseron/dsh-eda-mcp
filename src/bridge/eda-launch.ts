@@ -250,3 +250,18 @@ export function buildLaunchArgs(platform: Platform, executable: string, project?
   }
   return hasProject ? { command: executable, args: [target as string] } : { command: executable, args: [] }
 }
+
+/**
+ * Windows script used to hand the launch to the running Explorer shell.
+ *
+ * Spawning `lceda-pro.exe` directly from a host process (or even through
+ * `Start-Process`) makes it start and exit immediately, while double-clicking the
+ * same executable works. Explorer runs in the interactive desktop, so executing a
+ * script through it reproduces the double-click context; the script then starts the
+ * app with the optional project argument.
+ */
+export function buildLaunchScript(executable: string, project?: string): string {
+  const target = project?.trim()
+  const args = target === undefined || target === '' ? '' : ' "' + target + '"'
+  return ['@echo off', 'start "" "' + executable + '"' + args, ''].join(String.fromCharCode(13, 10))
+}

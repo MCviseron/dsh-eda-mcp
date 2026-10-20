@@ -2,10 +2,13 @@
 import { createHash } from 'node:crypto'
 import { execFileSync, spawn } from 'node:child_process'
 import { existsSync, statSync } from 'node:fs'
+import { writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import type { Socket } from 'node:net'
 import { createInterface } from 'node:readline'
-import { buildLaunchArgs, decodeRegistryOutput, resolveExecutable, type LaunchProbe } from './eda-launch.ts'
+import { buildLaunchArgs, buildLaunchScript, decodeRegistryOutput, resolveExecutable, type LaunchProbe } from './eda-launch.ts'
 import {
   ANNULUS_MIN_MM, BOARD_OUTLINE_WIDTH_MIL, MIN_TRACK_WIDTH_MIL, POUR_CLEARANCE_MIN_MIL,
   POUR_CLEARANCE_RECOMMENDED_MIL, SILKSCREEN_HEIGHT_MIN_MM, SILKSCREEN_WIDTH_MIN_MM,
@@ -974,8 +977,29 @@ async function executeTool(name, rawArgs, timeoutMs) {
         }
       }
 
+      // On Windows a direct spawn (and even ShellExecute) makes lceda-pro.exe start
+      // and quit immediately, while the same executable works when the desktop
+      // shell launches it. Explorer runs in the interactive desktop, so the launch
+      // is handed to it through a tiny script that starts the app (with the project
+      // when given). Other platforms spawn the resolved command directly.
       const plan = buildLaunchArgs(process.platform, resolved.executable, project)
-      const child = spawn(plan.command, plan.args, { detached: true, stdio: 'ignore', windowsHide: false })
+      let child
+      let via = 'direct'
+      if (process.platform === 'win32') {
+        try {
+          const scriptPath = join(tmpdir(), 'dsh-eda-launch-' + process.pid + '-' + Date.now() + '.cmd')
+          await writeFile(scriptPath, buildLaunchScript(resolved.executable, project), 'utf8')
+          child = spawn(process.env.SystemRoot ? join(process.env.SystemRoot, 'explorer.exe') : 'explorer.exe', [scriptPath], {
+            detached: true, stdio: 'ignore', windowsHide: false,
+          })
+          via = 'explorer'
+        } catch {
+          child = spawn(plan.command, plan.args, { detached: true, stdio: 'ignore', windowsHide: false })
+          via = 'direct'
+        }
+      } else {
+        child = spawn(plan.command, plan.args, { detached: true, stdio: 'ignore', windowsHide: false })
+      }
       child.unref()
 
       const shouldWait = args.waitForExtension !== false
@@ -988,9 +1012,17 @@ async function executeTool(name, rawArgs, timeoutMs) {
         ok: true,
         launched: true,
         pid: child.pid ?? null,
+        via,
         executable: resolved.executable,
         source: resolved.source,
         project: project ?? null,
+        // Verified on JLCEDA Pro 3.2.186: the app starts but ignores the project
+        // argument passed on the command line (it opens on HOME), so the caller must
+        // not assume the project was opened.
+        projectOpenedByArgument: false,
+        projectNote: project === undefined || project === ''
+          ? null
+          : 'The app was started with the project path, but this JLCEDA Pro build ignores it and opens on HOME; open the project from the app itself.',
         target: { command: plan.command, args: plan.args },
         connected: waited.connected,
         connectedClients: waited.clients,
