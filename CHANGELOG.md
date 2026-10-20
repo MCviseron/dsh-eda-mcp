@@ -19,6 +19,15 @@
 - 真机只读核对：本机经注册表解析出 `D:\\lceda-pro\\lceda-pro.exe`，`source: "registry"`。
 - 工具总数 82 → **83**；`docs/tools.md` 重新生成（新增 “App control” 分组）。
 
+
+### `eda_launch` 真机联调中修掉的四个 bug + 设置卡片新增路径输入框
+
+- `reg query` 不带 `/s` **只返回默认值**，列不出 `OpenWithProgids` 里的 progid → 改为：列出用 `/s`、默认值用 `/ve`、指定值用 `/v`。
+- 拼注册表键时少了一个分隔符（`Classes` 与 progid 之间），导致查不到 `shell/open/command`。
+- probe 的缓存键把「列全部值」(`undefined`) 和「默认值」(`''`) 当成同一个键 → 第二次查询拿到错误结果。
+- **编码**：`reg.exe` 按控制台代码页输出（中文 Windows 是 GBK），而 progid 名是中文；按 UTF-8 解码会变成替换字符，拼不回注册表键。新增 `decodeRegistryOutput()`：UTF-8 解码出现替换字符时改用 `TextDecoder('gbk')`（两者都随宿主 Node 提供）。已加 3 个单测（GBK 字节、纯 ASCII、合法 UTF-8 不被二次解码）。
+- 设置卡片新增「嘉立创EDA 可执行文件（可选）」输入框（`edaExecutable`，留空即自动探测），中英文案齐备。
+- 真机结果：可执行文件**经注册表自动解析**为 `D:\lceda-pro\lceda-pro.exe`（`source: registry`），`eda_launch` 成功 spawn 并返回 pid；但本机 `lceda-pro.exe` 启动后 **8 秒内以退出码 0 自行退出**，且用 PowerShell `Start-Process`（官方快捷方式同参数、同工作目录）复现同样现象、`debug.log` 未更新、无子进程残留 —— 说明插件侧调用正确，问题在应用/环境，待确认。
 ## 0.6.2
 
 > **已发布到 npm**（`dsh-eda-mcp@0.6.2`，首个版本）。下面 0.6.1 的内容从未发布过，同批一起带上。

@@ -5,7 +5,7 @@ import { existsSync, statSync } from 'node:fs'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import type { Socket } from 'node:net'
 import { createInterface } from 'node:readline'
-import { buildLaunchArgs, resolveExecutable, type LaunchProbe } from './eda-launch.ts'
+import { buildLaunchArgs, decodeRegistryOutput, resolveExecutable, type LaunchProbe } from './eda-launch.ts'
 import {
   ANNULUS_MIN_MM, BOARD_OUTLINE_WIDTH_MIL, MIN_TRACK_WIDTH_MIL, POUR_CLEARANCE_MIN_MIL,
   POUR_CLEARANCE_RECOMMENDED_MIL, SILKSCREEN_HEIGHT_MIN_MM, SILKSCREEN_WIDTH_MIN_MM,
@@ -791,7 +791,9 @@ function launchProbe() {
     },
     registryQuery(key, valueName) {
       if (process.platform !== 'win32') return undefined
-      const cacheKey = key + '|' + (valueName ?? '')
+      // `undefined` (list every value) and `''` (the default value) are different
+      // queries and must not share a cache entry.
+      const cacheKey = key + '|' + (valueName === undefined ? 'LIST' : (valueName === '' ? 'DEFAULT' : 'V:' + valueName))
       if (cache.has(cacheKey)) return cache.get(cacheKey)
       let output
       try {
@@ -799,9 +801,10 @@ function launchProbe() {
         // (valueName undefined) needs `/s`; a single value uses `/v`, and the
         // default value uses `/ve`.
         const extra = valueName === undefined ? ['/s'] : (valueName === '' ? ['/ve'] : ['/v', valueName])
-        output = execFileSync('reg', ['query', key, ...extra], {
-          encoding: 'utf8', timeout: 5000, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'],
+        const raw = execFileSync('reg', ['query', key, ...extra], {
+          timeout: 5000, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'],
         })
+        output = decodeRegistryOutput(raw)
       } catch {
         output = undefined
       }

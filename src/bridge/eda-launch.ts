@@ -100,6 +100,22 @@ export function parseExecutableFromCommand(command: string | undefined): string 
   return first === '' ? undefined : first
 }
 
+/**
+ * Decode `reg` output. The tool writes in the console code page (GBK on a Chinese
+ * Windows), and progid names are non-ASCII, so a UTF-8 decode can produce
+ * replacement characters that no longer match a registry key. When that happens,
+ * decode again as GBK (both decoders ship with the Node the host provides).
+ */
+export function decodeRegistryOutput(raw: Uint8Array): string {
+  const utf8 = new TextDecoder('utf-8').decode(raw)
+  if (!utf8.includes(String.fromCharCode(0xFFFD))) return utf8
+  try {
+    return new TextDecoder('gbk').decode(raw)
+  } catch {
+    return utf8
+  }
+}
+
 /** Take the string payload of a registry line (`... REG_SZ  <value>`). */
 export function parseRegStringValue(output: string | undefined): string | undefined {
   for (const raw of (output ?? '').split(String.fromCharCode(10))) {

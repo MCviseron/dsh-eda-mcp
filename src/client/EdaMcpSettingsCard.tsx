@@ -10,6 +10,7 @@ export interface EdaMcpSettings {
   announceToAgent?: boolean
   toolCallTimeoutMs?: number
   allowRawApi?: boolean
+  edaExecutable?: string
 }
 
 export interface EdaMcpSettingsCardState {
@@ -266,6 +267,33 @@ function NumberField(props: NumberFieldProps) {
   )
 }
 
+interface TextFieldProps {
+  label: string
+  hint: string
+  value: string | undefined
+  placeholder?: string
+  disabled?: boolean
+  onChange: (value: string | undefined) => void
+}
+
+function TextField(props: TextFieldProps) {
+  return (
+    <Field label={props.label} hint={props.hint}>
+      <input
+        type="text"
+        value={props.value ?? ''}
+        placeholder={props.placeholder}
+        disabled={props.disabled}
+        onChange={(event) => {
+          const text = event.target.value.trim()
+          props.onChange(text === '' ? undefined : text)
+        }}
+        style={inputStyle}
+      />
+    </Field>
+  )
+}
+
 interface BooleanFieldProps {
   label: string
   hint: string
@@ -406,6 +434,14 @@ export function EdaMcpSettingsCard(props: EdaMcpSettingsCardProps) {
           value={draft.toolCallTimeoutMs}
           disabled={disabled}
           onChange={(value) => { clearNotice(); update('toolCallTimeoutMs', value) }}
+        />
+        <TextField
+          label={t('settings.edaExecutable')}
+          hint={t('settings.edaExecutableHint')}
+          value={draft.edaExecutable}
+          placeholder="lceda-pro.exe"
+          disabled={disabled}
+          onChange={(value) => { clearNotice(); update('edaExecutable', value) }}
         />
         <BooleanField
           label={t('settings.allowRawApi')}

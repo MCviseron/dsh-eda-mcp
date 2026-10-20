@@ -1,0 +1,19 @@
+feat(settings): editable EDA executable path; fix four real bugs found by a live launch
+
+- settings card: new optional 'edaExecutable' text field (empty = auto-detect),
+  zh/en copy included; empty input unsets the value through the existing save path
+- reg query without /s only returns the default value, so OpenWithProgids was never
+  listed: listing now uses /s, the default value /ve, a named value /v
+- the command key was missing the separator between Classes and the progid
+- the probe cache keyed undefined (list) and '' (default) to the same entry
+- reg.exe writes in the console code page (GBK on Chinese Windows) and progid names
+  are non-ASCII, so a UTF-8 decode produced replacement characters that no longer
+  matched a registry key: decodeRegistryOutput() retries with TextDecoder('gbk');
+  3 new unit tests (GBK bytes, plain ASCII, valid UTF-8 untouched)
+
+Live run: resolves D:\lceda-pro\lceda-pro.exe through the registry (source
+registry) and spawns it, but on this machine lceda-pro.exe exits by itself with code
+0 within 8 s - reproduced with a plain Start-Process using the same arguments and
+working directory as the official shortcut, with debug.log unchanged and no child
+process left behind. The plugin side is therefore correct; the app not staying open
+is still unexplained and needs a manual check.

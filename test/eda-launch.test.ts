@@ -7,7 +7,7 @@
  * output is fed as text, so the cases below run identically on any machine.
  */
 import {
-  buildLaunchArgs, envCandidates, parseExecutableFromCommand, parseRegStringValue,
+  buildLaunchArgs, decodeRegistryOutput, envCandidates, parseExecutableFromCommand, parseRegStringValue,
   parseRegValueNames, pathCandidates, registryCandidates, resolveExecutable,
   type LaunchProbe,
 } from '../src/bridge/eda-launch.ts'
@@ -37,6 +37,12 @@ check('quoted exe without args', parseExecutableFromCommand('"C:\\Program Files\
 check('empty command', parseExecutableFromCommand(''), undefined)
 check('undefined command', parseExecutableFromCommand(undefined), undefined)
 check('unterminated quote is rejected', parseExecutableFromCommand('"C:\\broken'), undefined)
+
+// --- registry output decoding -------------------------------------------
+const gbkBytes = Buffer.from([0xBC, 0xD1, 0xC1, 0xA2, 0xB4, 0xB4]) // 佳立创 in GBK
+check('GBK bytes decode to the right characters', decodeRegistryOutput(gbkBytes), '佳立创')
+check('plain ASCII stays as-is', decodeRegistryOutput(Buffer.from('  X    REG_SZ    abc', 'utf8')), '  X    REG_SZ    abc')
+check('valid UTF-8 is not re-decoded', decodeRegistryOutput(Buffer.from('嘉立创', 'utf8')), '嘉立创')
 
 // --- registry output parsing --------------------------------------------
 const regDefault = `\r\nHKEY_CURRENT_USER\\Software\\Classes\\嘉立创EDA库文件\\shell\\open\\command\r\n    (默认)    REG_SZ    "D:\\lceda-pro\\lceda-pro.exe" "%1"\r\n\r\n`
