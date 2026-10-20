@@ -61,6 +61,10 @@ pnpm add dsh-eda-mcp            # 或用 Web GUI 的插件管理器安装
 
 下载服务器对 `/eda/` 限流 **5 次/分钟/IP**（burst 5，回环地址豁免）：被限流时工具返回 `verified: unverified` 且 `httpStatus: 429` —— 这是限流，不是校验不一致，等一分钟重试即可。
 
+设置卡片的下载按钮给的是**插件自带的那份**（离线可用、不被限流），响应头带 `x-extension-version` 与 `x-extension-sha256`；旁边的「校验服务器副本」按钮调用 `/api/dsh-eda-mcp/extension/verify`，逐字节比对后给出 `match / mismatch / 无法校验（含 429 限流原因）`。
+
+设置卡片的下载按钮给的是**插件自带的那份**（离线可用、不被限流），响应头带 `x-extension-version` 与 `x-extension-sha256`；旁边的「校验服务器副本」按钮调用 `/api/dsh-eda-mcp/extension/verify`，逐字节比对后直接给出 `match / mismatch / 无法校验（含 429 限流原因）`。
+
 ### 1. 安装到 DSH Web profile
 
 ```sh

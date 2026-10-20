@@ -1,5 +1,15 @@
 # Changelog
 
+## 未发布（unreleased）
+
+### 设置卡片：下载仍是本地那份，但**能校验服务器副本**
+
+- 事实澄清（改前就是如此）：设置卡片的「下载 JLCEDA 扩展包」是 `<a href="/api/dsh-eda-mcp/extension.zip">`，由插件读**包内自带**的 zip 直接回传，**不经过服务器**。这是有意的：离线也能装、不会被限流、不依赖服务器可用性。
+- 现在响应头带 `x-extension-version`、`x-extension-sha256`、`content-length`，下载到的文件可自行核对。
+- 新增路由 `GET /api/dsh-eda-mcp/extension/verify`：从下载服务器取回同一文件并逐字节比对，返回 `verified: match | mismatch | unverified`（429 会带 `httpStatus` 与"是限流不是不一致"的说明）。卡片上多一个「校验服务器副本」按钮直接显示结果。
+- 新增第 **11** 套单测 `extension-routes`：用真实本地 HTTP 服务模拟三种服务器响应（同字节 / 不同字节 / 429），断言 `match`、`mismatch`、`unverified + 429`，并断言下载响应的 sha256 头与实际发出的字节一致。
+
+
 ## 1.1.0 — 2026-10-21
 
 ### `/eda/` 下载限流（服务器侧，5 次/分钟/IP）

@@ -327,6 +327,36 @@ export function EdaMcpSettingsCard(props: EdaMcpSettingsCardProps) {
   const [testing, setTesting] = useState(false)
   const [reconnecting, setReconnecting] = useState(false)
   const [notice, setNotice] = useState<{ kind: 'ok' | 'error'; text: string } | undefined>()
+  const [verifyingExtension, setVerifyingExtension] = useState(false)
+  const [extensionVerdict, setExtensionVerdict] = useState<{ kind: 'ok' | 'error'; text: string } | undefined>()
+
+  const verifyExtension = async (): Promise<void> => {
+    if (verifyingExtension) return
+    setVerifyingExtension(true)
+    try {
+      const response = await fetch('/api/dsh-eda-mcp/extension/verify')
+      const body = await response.json() as {
+        verified?: 'match' | 'mismatch' | 'unverified'
+        file?: string
+        local?: { sha256?: string }
+        error?: string
+      }
+      if (body.verified === 'match') {
+        const short = String(body.local?.sha256 ?? '').slice(0, 16) + '…'
+        setExtensionVerdict({ kind: 'ok', text: t('settings.verifyMatch').replace('{hash}', short) })
+      } else if (body.verified === 'mismatch') {
+        setExtensionVerdict({ kind: 'error', text: t('settings.verifyMismatch').replace('{hash}', String(body.file ?? '')) })
+      } else {
+        const reason = String(body.error ?? 'unknown')
+        setExtensionVerdict({ kind: 'error', text: t('settings.verifyUnverified').replace('{reason}', reason) })
+      }
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error)
+      setExtensionVerdict({ kind: 'error', text: t('settings.verifyUnverified').replace('{reason}', reason) })
+    } finally {
+      setVerifyingExtension(false)
+    }
+  }
 
   useEffect(() => {
     if (!seeded && state.status === 'ready') {
@@ -470,6 +500,17 @@ export function EdaMcpSettingsCard(props: EdaMcpSettingsCardProps) {
           >
             {t('settings.downloadExtension')}
           </a>
+          <button
+            type="button"
+            onClick={() => { void verifyExtension() }}
+            disabled={verifyingExtension}
+            style={verifyingExtension ? { ...secondaryButtonStyle, ...disabledButtonStyle, marginLeft: 8 } : { ...secondaryButtonStyle, marginLeft: 8 }}
+          >
+            {verifyingExtension ? t('settings.verifyBusy') : t('settings.verifyExtension')}
+          </button>
+          {extensionVerdict !== undefined
+            ? <p role="status" style={{ ...hintStyle, margin: '6px 0 0', color: extensionVerdict.kind === 'ok' ? undefined : '#c0392b' }}>{extensionVerdict.text}</p>
+            : null}
         </Field>
       </div>
 

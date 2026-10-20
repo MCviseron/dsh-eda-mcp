@@ -1,4 +1,4 @@
-import { createReadStream } from 'node:fs'
+import { readFile } from 'node:fs/promises'
 import { basename } from 'node:path'
 import type { ServerResponse } from 'node:http'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
@@ -27,11 +27,13 @@ export interface SettingsBridge {
 }
 import type { EdaMcpConfig } from './index.ts'
 import { isLoopbackRequest } from './loopback.ts'
+import { compareDigest, extensionDownloadUrl, sha256Of } from './bridge/extension-package.ts'
 
 export const EDA_MCP_API = {
   test: '/api/dsh-eda-mcp/test',
   reconnect: '/api/dsh-eda-mcp/reconnect',
   extensionZip: '/api/dsh-eda-mcp/extension.zip',
+  extensionVerify: '/api/dsh-eda-mcp/extension/verify',
   diagnostics: '/api/dsh-eda-mcp/diagnostics',
   selfTest: '/api/dsh-eda-mcp/self-test',
   settingsDescribe: '/api/dsh-eda-mcp/settings/describe',
@@ -87,6 +89,10 @@ function toView(descriptor: SettingsBridgeView): unknown {
 export interface EdaMcpRouteDeps {
   getConfig: () => EdaMcpConfig
   extensionZipPath: string
+  /** Wire version of the bundled extension zip (from jlc-extension/extension.json). */
+  extensionVersion: string
+  /** Base URL of the download server; override with DSH_EDA_EXTENSION_BASE. */
+  extensionDownloadBase: string
   /** Dispose and recreate the MCP bridge child, then return immediately. */
   reconnect: () => void
   /** Which executable and script the bridge child is started with (diagnostics). */
@@ -179,25 +185,82 @@ export function makeEdaMcpRoutes(deps: EdaMcpRouteDeps): WebRoute[] {
     },
   }
 
+  // The card serves the LOCAL copy on purpose: it works offline and cannot be throttled.
+  // The digest travels with it, and a separate verify route compares it with the served copy
+  // so "is this the same artifact?" has an answer without downloading twice by hand.
   const extensionZip: WebRoute = {
     kind: 'exact',
     path: EDA_MCP_API.extensionZip,
     handler: async (req, res): Promise<void> => {
       if (req.method !== 'GET') return json(res, 405, { ok: false, error: 'method-not-allowed' })
       if (!isLoopbackRequest(req)) return json(res, 403, { ok: false, error: 'forbidden' })
+      let bytes: Buffer
+      try {
+        bytes = await readFile(deps.extensionZipPath)
+      } catch {
+        return json(res, 404, { ok: false, error: 'extension zip missing next to the plugin' })
+      }
       res.writeHead(200, {
         'content-type': 'application/zip',
         // Keep the versioned file name the browser saves it as.
         'content-disposition': 'attachment; filename="' + basename(deps.extensionZipPath) + '"',
         'cache-control': 'no-store',
+        'x-extension-version': deps.extensionVersion,
+        'x-extension-sha256': sha256Of(bytes),
+        'content-length': String(bytes.byteLength),
       })
-      const stream = createReadStream(deps.extensionZipPath)
-      stream.on('error', () => { res.destroy() })
-      stream.pipe(res)
+      res.end(bytes)
     },
   }
 
-  return [test, reconnect, extensionZip, diagnostics, selfTest]
+  const extensionVerify: WebRoute = {
+    kind: 'exact',
+    path: EDA_MCP_API.extensionVerify,
+    handler: async (req, res): Promise<void> => {
+      if (req.method !== 'GET') return json(res, 405, { ok: false, error: 'method-not-allowed' })
+      if (!isLoopbackRequest(req)) return json(res, 403, { ok: false, error: 'forbidden' })
+      let localBytes: Buffer
+      try {
+        localBytes = await readFile(deps.extensionZipPath)
+      } catch {
+        return json(res, 404, { ok: false, error: 'extension zip missing next to the plugin' })
+      }
+      const localSha256 = sha256Of(localBytes)
+      const url = extensionDownloadUrl(deps.extensionDownloadBase, deps.extensionVersion)
+      const report: Record<string, unknown> = {
+        version: deps.extensionVersion,
+        file: basename(deps.extensionZipPath),
+        local: { bytes: localBytes.byteLength, sha256: localSha256 },
+        url,
+      }
+      let response: Response
+      try {
+        response = await fetch(url, { signal: AbortSignal.timeout(20000) })
+      } catch (error) {
+        return json(res, 200, { ...report, verified: 'unverified', error: 'download failed: ' + (error instanceof Error ? error.message : String(error)) })
+      }
+      if (!response.ok) {
+        // 429 = the server throttles an IP to 5 downloads/min; that is not a checksum problem.
+        return json(res, 200, {
+          ...report,
+          verified: 'unverified',
+          httpStatus: response.status,
+          error: response.status === 429
+            ? 'the download server throttled this IP (HTTP 429, 5 downloads/min). Wait about a minute and verify again.'
+            : 'download failed: HTTP ' + response.status,
+        })
+      }
+      const remoteBytes = new Uint8Array(await response.arrayBuffer())
+      const remoteSha256 = sha256Of(remoteBytes)
+      return json(res, 200, {
+        ...report,
+        remote: { bytes: remoteBytes.byteLength, sha256: remoteSha256 },
+        verified: compareDigest(localSha256, remoteSha256),
+      })
+    },
+  }
+
+  return [test, reconnect, extensionZip, extensionVerify, diagnostics, selfTest]
 }
 
 export function makeEdaMcpSettingsRoutes(settings: SettingsBridge): WebRoute[] {

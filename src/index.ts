@@ -157,6 +157,15 @@ const BRIDGE_URL = new URL('../lib/bridge.mjs', import.meta.url)
  * that manifest instead of hard-coding a file name; older layouts without a
  * versioned file keep working through the plain-name fallback.
  */
+function resolveExtensionVersion(): string {
+  try {
+    const manifest = JSON.parse(readFileSync(fileURLToPath(new URL('../jlc-extension/extension.json', import.meta.url)), 'utf8')) as { version?: string }
+    return typeof manifest.version === 'string' ? manifest.version : ''
+  } catch {
+    return ''
+  }
+}
+
 function resolveExtensionZipPath(): string {
   const plain = fileURLToPath(new URL('../dsh-eda-bridge-extension.zip', import.meta.url))
   try {
@@ -292,6 +301,8 @@ let current: () => EdaMcpConfig = () => unwrapConfig(config ?? {})
     const disposers = makeEdaMcpRoutes({
       getConfig: () => current(),
       extensionZipPath: resolveExtensionZipPath(),
+      extensionVersion: resolveExtensionVersion(),
+      extensionDownloadBase: process.env.DSH_EDA_EXTENSION_BASE ?? 'http://159.75.130.207/eda/',
       reconnect: remountClient,
       bridgeLaunch: describeBridgeLaunch,
       // Surface the skill registration so "did it register?" is answerable from

@@ -28,6 +28,11 @@ export const zh = {
   'settings.reconnectFailed': '重连失败',
   'settings.portLabel': '桥接 WebSocket 端口：39009（固定）',
   'settings.downloadExtension': '下载 JLCEDA 扩展包',
+  'settings.verifyExtension': '校验服务器副本',
+  'settings.verifyBusy': '校验中…',
+  'settings.verifyMatch': '一致：服务器上的 zip 与本地这份逐字节相同（sha256 {hash}）',
+  'settings.verifyMismatch': '不一致：服务器那份与本地不同，请重新上传 {hash}',
+  'settings.verifyUnverified': '无法校验：{reason}',
   'settings.installHint': '在嘉立创EDA专业版中：扩展 → 导入 → 选择下载的 zip → 在扩展列表开启本扩展的「允许外部交互」。',
 } as const
 
@@ -61,6 +66,11 @@ export const en = {
   'settings.reconnectFailed': 'Reconnect failed',
   'settings.portLabel': 'Bridge WebSocket port: 39009 (fixed)',
   'settings.downloadExtension': 'Download JLCEDA extension zip',
+  'settings.verifyExtension': 'Verify server copy',
+  'settings.verifyBusy': 'Verifying…',
+  'settings.verifyMatch': 'Match: the served zip is byte-identical to the local one (sha256 {hash})',
+  'settings.verifyMismatch': 'Mismatch: the served zip differs — re-upload {hash}',
+  'settings.verifyUnverified': 'Could not verify: {reason}',
   'settings.installHint': 'In JLCEDA Pro: Extensions → Import → select the downloaded zip → enable "Allow external interactions" for this extension.',
 } as const
 

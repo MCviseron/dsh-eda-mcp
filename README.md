@@ -58,6 +58,14 @@ produce the same sha256.
 The download server throttles `/eda/` to 5 requests/minute per IP (burst 5, loopback exempt), so
 a `429` shows up as `verified: 'unverified'` with `httpStatus: 429` — that is throttling, not a
 checksum mismatch; wait a minute and retry.
+The settings card serves the **bundled** copy (works offline, never throttled) and stamps
+`x-extension-version` / `x-extension-sha256` on the response; its "Verify server copy" button calls
+`/api/dsh-eda-mcp/extension/verify` and reports match / mismatch / why verification was impossible
+(429 throttling included).
+The settings card serves the **bundled** copy (works offline, never throttled) and stamps
+`x-extension-version` / `x-extension-sha256` on the response; its "Verify server copy" button calls
+`/api/dsh-eda-mcp/extension/verify` and reports match / mismatch / why verification was impossible
+(429 throttling included).
 
 ### 1. Install into the DSH web profile
 
