@@ -211,6 +211,11 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the repository layout, the release/ta
 - The JLCEDA extension socket is registered through `sys_WebSocket`, which has neither a close callback nor auto-reconnect; versions before 0.3.3 therefore had to be reconnected by hand after the DSH bridge child restarted. 0.3.3 adds a 10 s heartbeat that re-registers the socket when `pong` stops arriving.
 - Screenshot/canvas image return is not yet wired into MCP image blocks.
 - Changing the bridge WebSocket port requires editing both the bridge env and `jlc-extension/api-bridge.js`, then rebuilding/reimporting the extension zip.
+- `dmt_Project.createProject` / `deleteProject` do nothing on this EDA build (3.2.186, signed in but semi-offline): the former returns no uuid for a directory team, a canonical team uuid, or either with/without a folderUuid, and the latter always returns `false` (verified with the project open and after switching away). **Create projects with `eda_import_project` instead** (importing a project file does create one — verified), and delete them in the app.
+- In semi-offline mode EDA models **each local project directory as a "team"**: the `uuid` reported by `eda_list_teams` is the directory path, while a project record's `teamUuid` is a real uuid. `eda_list_projects` without a filter walks every team, so the first call is slower than one with `teamUuid`.
+- Spawning `lceda-pro.exe` directly (even through ShellExecute) makes it exit with code 0 immediately; only handing the launch to the desktop shell (`explorer.exe`) starts it, so on Windows `eda_launch` always goes through explorer plus a temporary `.cmd`.
+- A project path on the command line is **ignored by the app** (the active document stays HOME), so `eda_launch({ project })` only forwards the argument; the result carries `projectOpenedByArgument: false` and a `projectNote`. Use `eda_open_project` to actually open one.
+- The extension and bridge wire versions must move **together** (currently 0.4.0): a changed allow-list requires re-importing the zip, otherwise new tools answer `API method not allowed`. `eda_status` reports every connected page's version in `extensionVersions`.
 
 ## Repository
 

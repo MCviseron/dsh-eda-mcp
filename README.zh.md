@@ -282,7 +282,7 @@ JLCEDA 工程文件里真实的板框记录是：
 
 ## 完整工具参考
 
-`docs/tools.md` 由构建产物（bridge 的 MCP `tools/list`）自动生成（`pnpm docs`），共 **82 个工具**，是唯一权威清单：名称、描述、参数与必填项都在里面。下面只写流程与坑。
+`docs/tools.md` 由构建产物（bridge 的 MCP `tools/list`）自动生成（`pnpm docs`），共 **97 个工具**，是唯一权威清单：名称、描述、参数与必填项都在里面。下面只写流程与坑。
 
 ## 设计规范
 
@@ -373,6 +373,11 @@ pnpm check       # 以上三步
 - 修改桥接端口需要同时改桥接环境变量和 `jlc-extension/api-bridge.js`，再重新构建并重新导入扩展。
 - 元件包围盒检查依赖 `sch_Primitive.getPrimitivesBBox`；个别图元若没有 BBox，会跳过超界检查。
 - 扩展 `activationEvents` 已包含 onStartupFinished / onProjectOpened / onEditorSchematic / onEditorPcb；如果导入旧版扩展后切到 PCB 掉线，请重新导入新版 zip。
+- `dmt_Project.createProject` / `deleteProject` 在本机 EDA 3.2.186（登录但半离线）上**无副作用**：前者返回空 uuid（目录路径 / 真 team uuid / 带不带 folderUuid 四种组合都试过），后者始终返回 `false`（工程打开时与切走后各试一次）。**新建工程请改用 `eda_import_project`（导入一个工程文件即建出工程，已实测）**，删除请在应用内完成。
+- 半离线模式下 EDA 把**每个本地工程目录当成一个 "team"**：`eda_list_teams` 返回的 `uuid` 就是目录路径，而工程记录里的 `teamUuid` 是另一种真 uuid。`eda_list_projects` 无过滤时会遍历所有 team 聚合，因此第一次调用会比带 `teamUuid` 时慢一些。
+- `lceda-pro.exe` 直接 `spawn`（含 ShellExecute）会**立刻以退出码 0 退出**：只有交给桌面外壳（`explorer.exe`）才能起来，所以 `eda_launch` 在 Windows 上固定走 explorer + 临时 `.cmd`。
+- 命令行带工程路径启动**被应用忽略**（活动文档仍是 HOME），所以 `eda_launch({ project })` 只保证"把参数传下去"，返回值里 `projectOpenedByArgument: false` 与 `projectNote` 会明确说明；要打开工程请用 `eda_open_project`。
+- 扩展与桥接的**线协议版本必须成对升级**（当前 0.4.0）：白名单变了就要重新导入 zip，否则新工具会报 `API method not allowed`；`eda_status` 的 `extensionVersions` 会指出每个页面连上来的版本。
 
 ## 仓库结构
 

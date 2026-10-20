@@ -1,188 +1,53 @@
 # Changelog
 
-## 未发布（unreleased）
+## 0.7.0 — 2026-10-20
 
-### 新工具 `eda_launch`：一条调用打开嘉立创EDA（可选打开工程）并等扩展连上
+主题：把「操作嘉立创EDA」从**画图**扩展到**应用与工程**层面，并把这一路真机联调暴露的 bug 全部修掉。
 
-- `eda_launch({ project?, executable?, waitForExtension?, timeoutMs? })`：启动 `lceda-pro.exe`；
-  带 `project` 时直接把 `.eprj2/.eprj` 交给应用打开（这条命令行正是官方安装器注册的文件关联命令
-  `"lceda-pro.exe" "%1"`），随后每 500 ms 轮询等待扩展连接（默认 30 s，`waitForExtension:false` 可跳过）。
-  返回 `{ launched, pid, executable, source, project, target, connected, connectedClients, waitedMs, hint }`。
-- **不绑定任何机器**：可执行文件按顺序解析 —— 显式 `executable` 参数 → `DSH_EDA_EXECUTABLE` /
-  `JLCEDA_EXECUTABLE` 环境变量 → 注册表为 `.eprj2/.eprj` 登记打开命令的那个 progid → 常见安装目录
-  （`Program Files`、`Program Files (x86)`、`LOCALAPPDATA\\Programs`、`APPDATA\\Programs`、系统盘、用户目录，
-  含中英文目录名）→ `PATH`。返回值里的 `source` 说明命中了哪一级。
-- 新增配置项 `edaExecutable`（默认空 = 自动探测），由宿主以 `DSH_EDA_EXECUTABLE` 传给桥接子进程。
-- 新增 **22 个单测**（`test/eda-launch.test.ts`）：命令行解析、注册表输出解析（含 `(value not set)` 的排除）、
-  解析优先级（config → env → registry → 安装目录 → PATH）、候选目录生成、`PATH` 分隔符（Windows `;` / 其它 `:`）、
-  以及三平台启动参数。全部用 fake probe 构造，不启动任何进程。
-- 真机只读核对：本机经注册表解析出 `D:\\lceda-pro\\lceda-pro.exe`，`source: "registry"`。
-- 工具总数 82 → **83**；`docs/tools.md` 重新生成（新增 “App control” 分组）。
+> **线协议 0.3.5 → 0.4.0**：扩展白名单有变动，**必须重新导入** `dsh-eda-bridge-extension-0.4.0.zip`，否则新工具会返回 `API method not allowed`。用 `eda_status` 的 `extensionVersions` 核对。
 
+### 新增工具（83 → 97）
 
-### `eda_launch` 真机联调中修掉的四个 bug + 设置卡片新增路径输入框
+- **应用控制**：`eda_launch`（启动 EDA，可选带工程，并等扩展连上；Windows 上把启动交给 `explorer.exe`，见下）、`eda_close`（先优雅后强制，返回关闭前后进程数）。
+- **工程**：`eda_list_projects`（无过滤时跨本地目录聚合）、`eda_get_project`、`eda_open_project`（uuid 或**中文工程名**）、`eda_create_project`、`eda_delete_project`、`eda_modify_project`（改名/描述）、`eda_copy_project`、`eda_import_project`（**导入即建工程**，需目标团队）、`eda_export_project`（给 `outPath` 直接落盘）、`eda_close_document`。
+- **工作区**：`eda_get_workspace`（当前工作区 + 团队）、`eda_list_teams`、`eda_list_folders`。
+- **设置卡片**新增「嘉立创EDA 可执行文件（可选）」输入框（`edaExecutable`，留空自动探测）。
 
-- `reg query` 不带 `/s` **只返回默认值**，列不出 `OpenWithProgids` 里的 progid → 改为：列出用 `/s`、默认值用 `/ve`、指定值用 `/v`。
-- 拼注册表键时少了一个分隔符（`Classes` 与 progid 之间），导致查不到 `shell/open/command`。
-- probe 的缓存键把「列全部值」(`undefined`) 和「默认值」(`''`) 当成同一个键 → 第二次查询拿到错误结果。
-- **编码**：`reg.exe` 按控制台代码页输出（中文 Windows 是 GBK），而 progid 名是中文；按 UTF-8 解码会变成替换字符，拼不回注册表键。新增 `decodeRegistryOutput()`：UTF-8 解码出现替换字符时改用 `TextDecoder('gbk')`（两者都随宿主 Node 提供）。已加 3 个单测（GBK 字节、纯 ASCII、合法 UTF-8 不被二次解码）。
-- 设置卡片新增「嘉立创EDA 可执行文件（可选）」输入框（`edaExecutable`，留空即自动探测），中英文案齐备。
-- 真机结果：可执行文件**经注册表自动解析**为 `D:\lceda-pro\lceda-pro.exe`（`source: registry`），`eda_launch` 成功 spawn 并返回 pid；但本机 `lceda-pro.exe` 启动后 **8 秒内以退出码 0 自行退出**，且用 PowerShell `Start-Process`（官方快捷方式同参数、同工作目录）复现同样现象、`debug.log` 未更新、无子进程残留 —— 说明插件侧调用正确，问题在应用/环境，待确认。
-
-### `eda_launch` 真机结论：**能打开 EDA，但打不开工程**（应用忽略命令行参数）
-
-实验（同一台机器、同一 exe）：
-
-| 启动方式 | 结果 |
-|---|---|
-| 桥接直接 `spawn` / PowerShell `Start-Process`（都带工程参数） | 进程立刻以退出码 0 结束，无窗口、无子进程、`debug.log` 不更新 |
-| **`explorer.exe <exe>` 交接给桌面外壳** | ✅ **5 个进程 + 窗口正常**，扩展 9 s 内连上（`connected: true`） |
-| 带工程参数（`explorer` 交接，脚本里 `start "" "exe" "project"`） | 应用启动成功，但活动文档仍是 **HOME** → **参数被忽略** |
-| 已运行实例 + 再传工程路径 | 同上，仍 HOME |
-
-因此实现改为：**Windows 上把启动交给 explorer**（写一个临时 `.cmd`，内容是 `start "" "<exe>" "<project>"`，再由 `explorer.exe` 执行）—— 这与双击同上下文，已实测可用；其他平台仍直接 spawn。返回值新增：
-
-- `via`: `explorer` / `direct`（走了哪条路）
-- `projectOpenedByArgument: false` 与 `projectNote`：明确告知**工程未被命令行打开**，需在应用内打开
-
-另：官方 API `DMT_Project` 只有 `openProject(projectUuid)`（工作区工程按 uuid），**没有按本地路径打开**的接口，所以「用 API 打开本地 .eprj2」当前也做不到。
-
-新增 3 个单测覆盖启动脚本（`@echo off`、含空格的路径加引号、带/不带工程）。
-
-### B 方案落地：工程级 API（列出 / 读取 / 打开 / **新建**）
-
-官方 `DMT_Project` 提供的能力已接入（扩展白名单新增 5 个方法，**线协议版本对升到 0.3.6**，需重新导入 zip）：
-
-| 新工具 | 底层 API | 说明 |
-|---|---|---|
-| `eda_list_projects` | `getAllProjectsUuid` + `getProjectInfo` | 默认把 uuid 解析成工程名（`resolveNames:false` 只列 uuid，`limit` 限制解析数量） |
-| `eda_get_project` | `getCurrentProjectInfo` | 当前打开的工程 |
-| `eda_open_project` | `openProject(uuid)` | 传 `uuid` 直接开；只传 `name` 时先解析（精确匹配优先，其次忽略大小写的包含匹配），失败会列出已知工程名 |
-| `eda_create_project` | `createProject(...)` | **新建工程**，返回 uuid；`open:true` 时顺手打开；应用拒绝时抛错而不是静默成功 |
-
-这意味着「打开本地 `.eprj2` 文件」仍是应用自身的限制（命令行参数被忽略），但**工作区工程**现在可以完全由插件驱动：列出 → 新建 → 打开。
-
-### 应用级基础操作补齐（关闭 / 关标签页 / 导入 / 导出工程）
-
-| 新工具 | 底层 | 说明 |
-|---|---|---|
-| `eda_close` | `taskkill /IM <exe> /T`，超时后 `/F` | **关闭嘉立创EDA**（按解析出的可执行文件名，跨平台：非 Windows 用 `pkill`）；返回关闭前后进程数与剩余数 |
-| `eda_close_document` | `dmt_EditorControl.closeDocument` | 关闭一个编辑器标签页 |
-| `eda_export_project` | `sys_FileManager.getProjectFile` / `getProjectFileByProjectUuid` | 导出工程为文件：给 `outPath` 就直接落盘并返回路径与字节数；不给则只回元数据，`inline:true` 才回 base64 |
-| `eda_import_project` | `sys_FileManager.importProjectByProjectFile` | **导入本地**工程文件（`.eprj2/.epro/…`）到工作区；`open:true` 时导入后立即打开。这就是「打开本地工程文件」的可行路径（应用本身忽略命令行参数） |
-
-扩展新增两个内部助手 `dsh.internal.exportProjectFile` / `importProjectFile`（File ↔ base64 只能在渲染进程内完成），白名单增加 `dmt_EditorControl.closeDocument` 与 `dmt_Project.*`；**线协议版本对 0.3.5 → 0.3.6**，用户需重新导入 zip，否则新工具会报 `API method not allowed`。
-
-`eda_close` 真机验证（本机）：`processesBefore: 5 → processesAfter: 0`，但 **`forced: true`** —— Windows 上 `taskkill /IM lceda-pro.exe /T`（不带 `/F`）对本机这个 Electron 应用**没能关掉**（8 s 后仍是 5 个进程），最终由 `/F` 强制结束。
-
-**因此：`eda_close` 之前请先 `eda_save_document` / `eda_pcb_save_document`，否则未保存的改动会丢**（返回值里的 `forced` 会告诉你是否走了强制路径）。
-
-### 线协议 0.3.6 → 0.3.7：工程 CRUD 补齐 + 诊断加强
-
-- 新增 `eda_delete_project`、`eda_modify_project`（改名/改描述）、`eda_copy_project`，与 `eda_open_project` 共用同一套「uuid 或工程名」解析。
-- `eda_status` 现在返回 **`extensionVersions`（每个页面一条）**，只要有一个客户端版本不等于桥接版本就 `versionMismatch: true`，并在 `hint` 里给出**准确的处理步骤**：先在 EDA 里**删除旧的 dsh-eda-bridge 扩展**，再导入 zip，然后**重启应用**（仅「重新加载」会保留旧副本）。
-- `eda_list_projects` 不再传 `[null,null,null]`（官方 API 把字面 null 当过滤值，会挂住调用）；不指定过滤条件时直接调 `getAllProjectsUuid()`。
-- `eda_get_project` 在没打开工程时返回 `{ project: null, hint }`，不再是空响应。
-
-实测记录（重要）：用户在 0.3.6 时导入 zip 后，`eda_status` 仍报 `extensionVersion: 0.3.5` 且 `dmt_Project.getAllProjectsUuid` 返回 `API method not allowed` —— **导入没有替换旧副本**，这就是上面 hint 里写明「先删除旧扩展再导入并重启」的原因。
-
-### 修掉「导入后仍报 0.3.5」的根因：扩展里有硬编码版本常量
-
-`jlc-extension/api-bridge.js` 里有两处**手写**版本（`var VERSION = '0.3.5'` 与 `version: '0.3.5'`），连接时上报的就是它们；而 `extension.json` 才是导入清单里的版本。于是出现：EDA 扩展列表显示 **0.3.6**，`eda_status` 却永远报 **0.3.5**、`versionMismatch: true`。
-
-修复：版本**只在 `extension.json` 里维护**，`api-bridge.js` 改为占位符 `__EXTENSION_VERSION__`，构建时把清单版本注入到 zip 里的副本（源码保持占位符，产物永远一致）；若源码丢了占位符，构建直接报错。
-
-- 新增 3 条单测（清单版本格式合法、占位符存在、**不允许**出现硬编码版本常量）。
-- 复发即构建失败，不会再出现「清单与运行时报不同版本」。
-
-### Bug 审计（可执行契约检查 + 两个真 bug）
-
-新增 `scripts/contract-check.mjs`（已接入 `pnpm check` 与 CI），机械校验四类**已经真实发生过**的错配：
-
-| 检查项 | 结果 |
-|---|---|
-| 声明的工具是否都有 handler（自动解析 11 个别名） | 94 声明 / 83 handler + 11 别名（含 `eda_pcb_*` 别名） |
-| 桥接调用的 API 是否都在扩展白名单（`ALLOWED_API` + `FILE_METHODS`） | 87 个调用面 / 160 条白名单 ✓ |
-| 桥接调用的 `dsh.internal.*` 是否都有实现 | 7 个内部助手 ✓ |
-| `objectSchema` 的 required 字段是否真的声明了 | 94 个 schema ✓ |
-
-审计中发现并修掉两个真 bug：
-
-1. **僵尸客户端把调用吞掉**（很可能就是之前那次 `MCP error -32001: Request timed out`）：原先 `firstReadyClient()` 取第一个 `ready` 的 socket，而页面跳转/关闭留下的半开连接仍然 `ready: true`，调用发进黑洞，直到 60 s 超时。现在：每次收到数据都刷新 `lastSeenAt`；**优先最新活跃的客户端**；静默超过 60 s 的只作兜底；超时且是**只读方法**时才换另一个页面重试一次（写操作绝不重试，避免重复副作用）。
-2. **连接状态会撒谎**：`connectedClients`、`waitForExtensionConnection`、healthz 都用原始 `ready` 计数 → 改为活跃客户端计数（`eda_launch` 的「已连上」不再可能被僵尸 socket 骗到）。
-
-另修：`eda_close` 在非 Windows 上把进程数当 `-1`（等于「已关闭」），改为 `pgrep -f` 真实计数。
-
-顺带确认：`src/bridge/index.ts` 里**没有**静默 `catch {}`（0 处）。
-
-### 线协议 0.3.7 → 0.3.8：工作区/团队/文件夹 + 新建工程补齐必填参数（真机验证中发现）
-
-真机（扩展 0.3.7 已连上、`versionMismatch: false`）结果：
-
-| 调用 | 结果 |
-|---|---|
-| `eda_status` | ✅ `extensionVersions: ["0.3.7"]`，版本一致（说明版本注入修复生效） |
-| `eda_list_projects(resolveNames:false)` | ✅ 1.5 s 返回，**count = 0** |
-| `eda_get_project` | ✅ 返回 `{ project: null, hint }`（不再是空响应） |
-| `eda_create_project` | ❌ **返回空 uuid** |
-
-原因：官方 `createProject(friendlyName, name?, teamUuid?, folderUuid?, …)` 需要**所属团队**；不传就静默返回 undefined。另外 `getAllProjectsUuid` 只列**工作区工程**，本地 `.eprj2` 文件不会出现（这台机器的工程都是本地文件）。
-
-修复与新增：
-
-- `eda_create_project` 在未给 `teamUuid` 时自动取 `dmt_Team.getCurrentTeamInfo()`；取不到就明确报错「请先在 EDA 登录嘉立创账号或用 eda_list_teams 取 teamUuid」，并回显 `teamUuidUsed` / `teamSource`。
-- 新增 `eda_get_workspace`（当前工作区 + 团队）、`eda_list_teams`、`eda_list_folders`（默认取当前团队）。
-- 白名单新增 `dmt_Team.*`、`dmt_Folder.*`、`dmt_Workspace.*` 六个读取方法。
-
-### 线协议 0.3.8 → 0.3.9：工程控制真机打通（本地半离线模式），修 `optional is not defined`
-
-**真机结论（扩展 0.3.8、EDA 3.2.186、登录但半离线）**：
+### 真机验证过的能力（EDA 3.2.186、已登录、半离线）
 
 | 能力 | 结果 |
 |---|---|
-| `eda_get_workspace` | ✅ workspace = `Personal`，`getCurrentTeamInfo()` = null（半离线没有「当前团队」概念） |
-| `eda_list_teams` | ✅ 返回 **2 个「团队」，uuid 就是本地目录路径**：`D:\文档\LCEDA-Pro\projects`、`…\example-projects` |
-| `eda_list_projects()`（无过滤） | ✅ 自动**遍历所有团队聚合**：7 个工程（含 5 个示例工程），字段为 `friendlyName` / `teamUuid`（工程记录里的 teamUuid 是 `cd421d68…` 这种真 uuid，和目录路径不同） |
-| `eda_open_project({ name })` | ✅ **按工程名跨目录解析并打开成功**（打开「示例工程_快速入门」） |
-| `eda_get_project` | ✅ 返回工程详情 + 板卡（`波形变换电路`，sch/pcb uuid） |
-| `eda_open_document` + 读图 | ✅ 打开原理图页后 `eda_get_page_info`/`eda_get_components` 正常（读到 `P1`、器件 `DC1`） |
-| `eda_create_project` | ❌ **官方 API 在本机构建上不创建**：传目录路径、真 teamUuid、带/不带 folderUuid 四种组合都返回空 uuid，且列表里没有新工程、界面无对话框 —— 判定为该构建不支持（非插件 bug） |
-| `eda_export_project` | ❌ 首次调用报 **`optional is not defined`** → 我的扩展 bug（见下） |
+| 启动 / 关闭 EDA | ✅ `eda_launch` 走 explorer 交接，5 个进程 + 窗口，扩展 9 s 内连上；`eda_close` 5 → 0 进程（强制路径） |
+| 列出全部本地工程 | ✅ 跨目录聚合，7 → 8 个 |
+| 按中文工程名打开工程 | ✅ 两次成功 |
+| 打开原理图页并读取 | ✅ 页 `P1`、器件 `DC1`、板卡 `波形变换电路` |
+| 导出工程文件 | ✅ 1 056 450 字节 / 1.9 s |
+| **导入工程（= 变相新建）** | ✅ 新建出 `DSH-IMPORT-TEST`（4.7 s） |
+| `createProject` / `deleteProject` | ❌ 该构建无副作用（详见已知限制） |
 
-修掉的真 bug：
+### 修掉的真 bug（全部由真机暴露，不是推测）
 
-- `jlc-extension/api-bridge.js` 里 `optional()` **只定义在 `dsh.internal.pcbCreateRegion` 内部**，新加的 `exportProjectFile` / `importProjectFile` 看不见它 → 提升为共享函数，并清掉 `optional2`/`optional3` 三处重复定义。
-- `summarizePrimitive` 把团队/工程/文件夹记录摘要成 **空对象** → 这些结构改为**原样返回**（字段名不稳定：`uuid`/`friendlyName`/`teamUuid`）。
-- `resolveProjectUuid` 与 `eda_list_projects` 在无过滤时只查一次 `getAllProjectsUuid()`（本地模式恒为空）→ 现在**遍历团队聚合**，按名字打开才能用。
-- `eda_list_folders` 传目录路径时应用抛裸 `TypeError: …rootList` → 包装成可读错误并提示该传什么。
+1. **扩展硬编码版本常量**：`api-bridge.js` 里手写的 `var VERSION = '0.3.5'` 不随清单更新，导致「清单显示 0.3.6、运行时永远报 0.3.5」。改为构建时从 `extension.json` 注入 `__EXTENSION_VERSION__`，并有 3 条单测禁止再出现硬编码。
+2. **僵尸客户端吞调用**：`firstReadyClient()` 取第一个 `ready` socket，页面跳转留下的半开连接照样 `ready`，调用进黑洞直到 60 s 超时（就是那次 `MCP error -32001`）。改为「每条数据刷新 lastSeenAt + 优先最活跃 + 静默 >60 s 只作兜底 + 只读方法超时才换客户端重试一次」。
+3. **连接状态会撒谎**：`connectedClients`、`waitForExtensionConnection`、`/healthz` 全用原始 `ready` → 改用活跃客户端。
+4. **`optional is not defined`**：`optional()` 只定义在 `dsh.internal.pcbCreateRegion` 内部，导出/导入助手看不见 → 提升为共享函数并清掉 `optional2/optional3`。
+5. **团队/工程/文件夹被摘要成空对象**：`summarizePrimitive` 字段名不匹配 → 这些结构改为原样返回。
+6. **按名字找不到工程**：`getAllProjectsUuid()` 在半离线模式恒为空（本地目录才是 "team"）→ 无过滤时遍历团队聚合。
+7. **`reg query` 不带 `/s` 只返回默认值**，列不出 `OpenWithProgids`；拼键时少了分隔符；probe 缓存把「列全部值」和「默认值」当同一键。
+8. **GBK 解码**：`reg.exe` 按控制台代码页输出、progid 名是中文，UTF-8 解码出替换字符就拼不回注册表键 → 新增 `decodeRegistryOutput()`。
+9. **直接 spawn 起不来 GUI**：`lceda-pro.exe` 直接 spawn（含 ShellExecute）以退出码 0 立刻退出，只有交给 `explorer.exe` 才行 → `eda_launch` 在 Windows 固定走 explorer + 临时 `.cmd`。
+10. **`eda_close` 在非 Windows 把进程数当 -1**（等于谎报已关闭）→ 改用 `pgrep -f` 真实计数。
 
-### 线协议 0.3.9 → 0.4.0：导出/导入真机验证 + zip 包名带版本号
+### 可执行契约检查（新增）
 
-真机（扩展 0.3.9）：
+`scripts/contract-check.mjs`（接入 `pnpm check` 与 CI）机械校验四类**已真实发生过**的错配：工具声明 ↔ handler（自动解析 11 个别名）、桥接调用的每个 API ↔ 扩展白名单（`ALLOWED_API` + `FILE_METHODS`，160 条）、`dsh.internal.*` ↔ 扩展实现、`objectSchema` 的 required ↔ properties（94+ 个 schema）。
 
-| 调用 | 结果 |
-|---|---|
-| `eda_export_project({ outPath })` | ✅ **成功**：1.9 s 写出 1 056 450 字节，应用返回 `示例工程_快速入门.epro2` |
-| `eda_import_project({ path })` | ⚠️ 返回「imported」但**没有新工程**：`importProjectByProjectFile` 的第 4 个参数 `saveTo`（目标团队）没传，应用直接返回 undefined |
+### 构建与发布
 
-修复：
+- zip 包名带版本号：`dsh-eda-bridge-extension-0.4.0.zip`，同时保留 `dsh-eda-bridge-extension.zip` 别名（内容一致；分发放带版本号的那个）。
+- 工具总数 **97**，单测 **110** 条全通过，`docs/tools.md` 自动重生成（0 未分组）。
 
-- `eda_import_project` 现在**必填 `teamUuid`**（可选 `folderUuid` / `friendlyName`），组装成 `saveTo: { operation: 'New Project', newProjectOwnerTeamUuid, newProjectOwnerFolderUuid?, newProjectFriendlyName? }`；拿不到目标团队就直接报错说明原因，不再假报成功。
-- 扩展助手改为返回 `{ result }`，桥接据此判断**是否真的导入**（`imported` 不再恒为 true），并给出 `hint` 说明该构建忽略 saveTo。
-- **zip 包名带版本号**：构建产物为 `dsh-eda-bridge-extension-<版本>.zip`，同时保留 `dsh-eda-bridge-extension.zip` 作为同名别名（内容一致，脚本/下载路由/文档仍可用）；`.gitignore` 与 `package.json files` 同步。
 
-### 线协议 0.4.0 真机验证：**导入工程可用（= 变相新建）**，删除不可用
-
-| 调用 | 结果 |
-|---|---|
-| `eda_import_project({ path, teamUuid, friendlyName })` | ✅ **成功建出真工程**：返回 `{ itemType: "Project", uuid: e0f0fed1…, friendlyName: "DSH-IMPORT-TEST", teamUuid: cd421d68… }`，列表 7 → 8，4.7 s |
-| `eda_open_project({ name })` | ✅ 打开该新工程（当前工程 `DSH-IMPORT-TEST`，1 块板） |
-| `eda_delete_project({ name })` | ❌ 返回 `deleted: false`，工程仍在（**打开时**试过一次、**切到别的工程后**又试一次，都失败） |
-| `eda_create_project`（对照） | ❌ 依旧无效（此前四种参数组合都试过） |
-
-结论：该构建 **只能靠导入文件创建工程**（`createProject` 无用、`deleteProject` 无用）。工具返回值已如实反映（`imported` 不再恒为 true；删除失败会带 `hint` 说明该构建不支持并让用户在应用内删）。
-
-真机遗留：测试工程 `DSH-IMPORT-TEST` 留在工作区（API 删不掉），需在 EDA 里手动删除。
 ## 0.6.2
 
 > **已发布到 npm**（`dsh-eda-mcp@0.6.2`，首个版本）。下面 0.6.1 的内容从未发布过，同批一起带上。
