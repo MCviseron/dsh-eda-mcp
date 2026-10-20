@@ -91,11 +91,19 @@ jobs:
           if ($existing) {
             Write-Host "dsh-eda-mcp@$version is already published - the publish step will be skipped"
             "exists=true" >> $env:GITHUB_OUTPUT
+            "missing=false" >> $env:GITHUB_OUTPUT
+            exit 0
+          }
+          Write-Host "dsh-eda-mcp@$version is not published yet"
+          "exists=false" >> $env:GITHUB_OUTPUT
+          $package = npm view dsh-eda-mcp version --registry=https://registry.npmjs.org 2>$null
+          if ($package) {
+            "missing=false" >> $env:GITHUB_OUTPUT
           } else {
-            Write-Host "dsh-eda-mcp@$version is not published yet"
-            "exists=false" >> $env:GITHUB_OUTPUT
+            Write-Host "the package dsh-eda-mcp does not exist on npm yet - a trusted publisher can only be bound to an existing package, so the first release must be published manually (see docs/release.md)"
+            "missing=true" >> $env:GITHUB_OUTPUT
           }
 
       - name: Publish
-        if: (startsWith(github.ref, 'refs/tags/v') || inputs.publish == true) && steps.published.outputs.exists == 'false'
+        if: (startsWith(github.ref, 'refs/tags/v') || inputs.publish == true) && steps.published.outputs.exists == 'false' && steps.published.outputs.missing == 'false'
         run: npm publish --provenance --access public

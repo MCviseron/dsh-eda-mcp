@@ -33,7 +33,7 @@ npm pack --dry-run                  # 看 tarball 内容
 `dsh-eda-bridge-extension.zip`、`cordis.patch.yml`、`docs/`**。`lib/` 与 zip 是构建产物（被 gitignore），
 由 `prepare` 脚本在打包时生成 —— 所以**打包机必须是 Windows**（zip 用 PowerShell `Compress-Archive`）。
 
-## 2. 首次手动发布
+## 2. 首次手动发布（必须手动，顺序不能颠倒）
 
 ```powershell
 npm login --registry=https://registry.npmjs.org      # 浏览器登录
@@ -41,6 +41,14 @@ npm whoami --registry=https://registry.npmjs.org     # 应回显你的用户名
 
 npm publish            # registry / access 已由 publishConfig 指定
 ```
+
+**为什么必须手动**：trusted publisher 只能绑定到**已存在**的包，所以「推 tag → CI 自动发布」
+在包首次出现之前无法工作。`publish.yml` 里有一道守卫：包里查不到 `dsh-eda-mcp` 时会直接跳过
+`npm publish` 并打印说明，因此**先推 tag 也不会产生一次失败构建**，但也不会发布任何东西 ——
+真正的首发仍然是上面这条手动命令。
+
+首次发布成功之后，再去 npmjs.com → 该包 → Settings → Trusted Publisher 绑定本仓库（见 §4），
+之后每次推 `v*` tag 才会由 CI 自动发布。
 
 ### 2. 2FA：两种形态，先看自己是哪种
 
