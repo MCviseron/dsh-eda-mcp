@@ -45,13 +45,15 @@ Design limits enforced by these tools (track widths, via sizes, net naming) are 
 | `eda_get_page_info` | Return the current schematic page, the A4 frame range, the title-block keep-out range, and the recommended safe placement areas. All coordinates are MCP units (0.01 inch). | `paper?: string` |
 | `eda_get_schematic_pages` | List the schematic pages of the current schematic, or fetch one page by uuid. | `pageUuid?: string` |
 | `eda_search_components` | Search JLCEDA library devices by keyword. Returns candidate components with uuid/libraryUuid needed by eda_place_component. | `keyword: string, limit?: integer` |
-| `eda_get_pins` | List pins of one schematic component. Use the returned primitiveId with eda_place_net_flag_at_pin, eda_place_net_label_at_pin, or eda_set_no_connect. | `componentPrimitiveId: string` |
+| `eda_get_pins` | List pins of one schematic component in a single round trip, including pinName and pinNumber (no per-pin sch_PrimitivePin.get needed). Use the returned primitiveId with eda_place_net_flag_at_pin, eda_place_net_label_at_pin, or eda_set_no_connect. | `componentPrimitiveId: string` |
 | `eda_get_components` | List components on the active schematic page (or all pages). Returns designator, value, x, y, rotation and bounding box when available. | `allSchematicPages?: boolean, includeBounds?: boolean` |
 | `eda_get_wires` | List wires on the active schematic page. | `` |
 | `eda_get_nets` | List nets of the current schematic project. Uses sch_Net.* first; when the schematic is not the active document those APIs return [] and this tool falls back to parsing sch_Netlist.getNetlist, reporting which source was used. | `name?: string, parseNetlist?: boolean` |
 | `eda_get_active_document` | Return the document/tab that is currently active (documentType, uuid, tabId, parent project). Most tab-dependent APIs (sch_Net.*, netlist export, DRC) only work when the matching document is active - use eda_open_document to switch. | `` |
 | `eda_open_document` | Open/activate a document tab by uuid (dmt_EditorControl.openDocument). Works for a schematic page or a PCB, so tab-dependent APIs can run. | `documentUuid: string, splitScreenId?: string` |
-| `eda_get_net_labels` | List net-label / attribute primitives on the active schematic page (sch_PrimitiveAttribute.getAll), optionally for one parent primitive. | `parentPrimitiveId?: string` |
+| `eda_get_net_labels` | List every label-like primitive on the active schematic page: attribute primitives (netlabel/netport/netflag) PLUS plain texts left by the createNetLabel fallback, so they can be audited and deleted. Reports kind/primitiveId/net per entry. | `parentPrimitiveId?: string` |
+| `eda_workflow_guide` | Return the schematic working standard: grid-aligned manual placement, signal flow, when net labels/ports are required (a wire net name is overridden by connectivity), net-label fallback behaviour, batch placement and the verification order. Read it before laying out a sheet. | `` |
+| `eda_list_api_methods` | List every API method the connected extension accepts (its allow-list). Call it when eda_api_call answers "API method not allowed". | `` |
 
 ## Schematic: place & draw
 
@@ -63,13 +65,15 @@ Design limits enforced by these tools (track widths, via sizes, net naming) are 
 | `eda_place_net_flag_at_pin` | Place a power/ground net flag at a pin WITHOUT covering the symbol: the pin direction is read from the pin rotation, a stub wire of stubLength MCP units (default 20) is drawn outwards from the pin with the net name, and the flag is placed at its end. Pass offsetX/offsetY to place it manually (that disables the stub) or stubLength=0 for the old on-pin behaviour. | `pinPrimitiveId: string, identification: string, net: string, stubLength?: number, offsetX?: number, offsetY?: number, rotation?: integer, mirror?: boolean, color?: string, lineWidth?: integer, lineType?: integer, paper?: string, allowOutsideFrame?: boolean` |
 | `eda_place_net_label_at_pin` | Place a REAL net label at a pin (sch_PrimitiveAttribute.createNetLabel; falls back to text and reports method) WITHOUT covering the symbol: a stub wire of stubLength MCP units (default 20) is drawn outwards along the pin direction and the label goes at its end. offsetX/offsetY place it manually (disables the stub); stubLength=0 keeps the old on-pin behaviour. | `pinPrimitiveId: string, net: string, stubLength?: number, offsetX?: number, offsetY?: number, rotation?: integer, fontSize?: number, color?: string, lineWidth?: integer, lineType?: integer, paper?: string, allowOutsideFrame?: boolean` |
 | `eda_set_no_connect` | Set or clear the no-connect flag on one or more schematic pins via sch_PrimitivePin.modify. | `primitiveIds: array, noConnected?: boolean` |
-| `eda_draw_wire` | Draw a schematic wire (polyline). Coordinates are MCP units (0.01 inch). | `points: array, net?: string, color?: string, lineWidth?: integer, lineType?: integer` |
+| `eda_draw_wire` | Draw a schematic wire (polyline). Coordinates are MCP units (0.01 inch). IMPORTANT: the net argument only sticks on a floating wire — as soon as an endpoint touches a pin, EDA recomputes the net from connectivity and the name you passed is overwritten (measured: TESTNET merged into LED_A). To join same-named nets across regions use eda_place_net_port or a net label; do not rely on two distantly drawn wires sharing a name. | `points: array, net?: string, color?: string, lineWidth?: integer, lineType?: integer` |
 | `eda_draw_rectangle` | Draw a rectangle. topLeftY is the UPPER y coordinate (max y); height extends downward. Coordinates are MCP units. | `topLeftX: number, topLeftY: number, width: number, height: number, cornerRadius?: number, rotation?: integer, color?: string, fillColor?: string, lineWidth?: integer, lineType?: integer, fillStyle?: string` |
 | `eda_draw_functional_box` | Draw a dashed functional-group box around one group of components, with an optional label. Margins and coordinates are MCP units; default margin 1 unit (about 0.254 mm). | `componentIds?: array, label?: string, margin?: number, color?: string, lineWidth?: integer, lineType?: integer` |
 | `eda_draw_circle` | Draw a circle. Coordinates are MCP units. | `centerX: number, centerY: number, radius: number, color?: string, fillColor?: string, lineWidth?: integer, lineType?: integer, fillStyle?: string` |
 | `eda_draw_text` | Draw text. Coordinates are MCP units. | `x: number, y: number, content: string, rotation?: integer, textColor?: string, fontName?: string, fontSize?: number, bold?: boolean, italic?: boolean, underLine?: boolean, alignMode?: integer` |
-| `eda_place_net_label` | Place a real net label at x/y via sch_PrimitiveAttribute.createNetLabel (falls back to a plain text label when that API is missing, and reports which method was used). Coordinates are MCP units. | `x: number, y: number, net: string, fontSize?: number, rotation?: integer` |
-| `eda_delete_primitive` | Delete a schematic primitive by kind and primitive id. | `kind: string, primitiveId: string` |
+| `eda_place_net_label` | Place a net label at x/y. The real API (sch_PrimitiveAttribute.createNetLabel) is probed once per session; when the build never answers, a plain TEXT label is placed instead, which carries no electrical meaning and must be paired with a stub wire. Pass probe:true to re-check. | `x: number, y: number, net: string, fontSize?: number, rotation?: integer` |
+| `eda_place_net_labels` | Place many net labels in ONE call (per-pin or by coordinate) and report done/failed per item: a 133-label schematic used to exceed the caller timeout with no progress. items: [{ pinPrimitiveId, net, stubLength?, offsetX?, offsetY? }] or [{ x, y, net, fontSize? }]. | `items: array, probe?: boolean` |
+| `eda_move_component` | Move/rotate/mirror a schematic component (sch_PrimitiveComponent.modify) without deleting and re-placing it, so the designator and value survive. | `primitiveId: string, x?: number, y?: number, rotation?: number, mirror?: boolean` |
+| `eda_delete_primitive` | Delete a schematic primitive by kind and primitive id. Net ports, net flags and net labels are attribute primitives and need kind "netport"/"netflag"/"netlabel"; the text fallback labels are kind "text". | `kind: string, primitiveId: string` |
 
 ## Schematic: automation & export
 
@@ -78,11 +82,11 @@ Design limits enforced by these tools (track widths, via sizes, net naming) are 
 | `eda_save_document` | Save the active schematic document. | `` |
 | `eda_zoom_to_fit` | Zoom to fit all primitives in the active document. | `tabId?: string` |
 | `eda_zoom_to_region` | Zoom to a region. Schematic coordinates are MCP units. | `left: number, right: number, top: number, bottom: number, tabId?: string` |
-| `eda_run_drc` | Run schematic DRC and return the verbose result array. | `strict?: boolean` |
-| `eda_auto_layout` | Run schematic auto-layout (sch_Document.autoLayout). | `uuids?: array` |
-| `eda_auto_route` | Run schematic auto-routing (sch_Document.autoRouting). | `uuids?: array` |
+| `eda_run_drc` | Run schematic DRC with includeVerboseError and return one entry per problem (type, message, primitiveId, x/y plus the raw record) instead of bare counts. | `strict?: boolean` |
+| `eda_auto_layout` | Run schematic auto-layout (sch_Document.autoLayout). DISABLED by default: automated layout is not used unless the user asks for it. Pass force:true only then. | `uuids?: array, force?: boolean` |
+| `eda_auto_route` | Run schematic auto-routing (sch_Document.autoRouting). DISABLED by default: route by hand unless the user explicitly asks. Pass force:true only then. | `uuids?: array, force?: boolean` |
 | `eda_export_netlist` | Export the schematic netlist as text (default JLCEDA format). Returns null when no schematic is active - check eda_get_active_document / open the schematic page first. | `type?: string` |
-| `eda_export_bom` | Export the schematic BOM. csv returns text; xlsx returns a base64 data URL. | `format?: string` |
+| `eda_export_bom` | Export the schematic BOM. csv is decoded from UTF-16 to readable text; xlsx returns a base64 data URL. | `format?: string` |
 | `eda_create_board` | Create a board linking a schematic and a PCB (dmt_Board.createBoard). | `schematicUuid?: string, pcbUuid?: string` |
 
 ## Design rules

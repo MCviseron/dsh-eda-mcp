@@ -21,5 +21,9 @@ export const EDA_MCP_GUIDANCE = [
   '绘制细节：原理图坐标为 0.01inch，原点在 A4 图框左下角，y 向上，图框 x 0~1170、y 0~825，标题栏 x 460~1160、y 10~190 必须避让（先 eda_get_page_info）。PCB 坐标为 mil。板框用 pcb_draw_board_outline（板框层 11 的一条 pcb_PrimitivePolyline，线宽默认 10mil）；区域只能用铜层 top/bottom/内层(15–44)/MULTI(12)。',
   '长任务：eda_pcb_auto_route 默认异步启动（EDA 自己显示进度条），必须用 eda_pcb_job_status 轮询 running 直到 false，不要加大超时；eda_pcb_clear_routing 同理（旧扩展自动分批，按 done 继续调用）。',
   '原理图 API（sch_Net.*、网表导出）只作用于当前活动文档：返回空时先用 eda_get_active_document 查、eda_open_document 切到原理图页。',
+  '原理图工作规范（默认手工，禁止为省事用自动布局/自动布线）：按 10 单位栅格对齐；信号左→右、电源在上、地在下；器件间留 ≥20 单位走线与标签空间；先 eda_get_page_info 看安全区再摆位；摆完用 eda_get_components 检查包围盒不重叠。eda_auto_layout / eda_auto_route 默认被拒绝（需 force:true 且设置里放行），仅当用户明确要求时使用；版面检查优先"导出图片自行识别"而不是让 EDA 重排。',
+  '跨区域同名网络必须用 eda_place_net_port / 网络标签：eda_draw_wire 的 net 只对悬空导线有效，导线一旦接触引脚，EDA 会按连通性重算网络名（实测 TESTNET 被并入 LED_A），所以"同名导线 = 同名网络"不成立。',
+  '网络标签：eda_place_net_label 先真实调 createNetLabel，该 API 在 3.2.186 上不响应 → 探测结论按会话缓存后自动降级为纯文本标签（无电气语义，靠 stub 导线承载网络）；批量务必用 eda_place_net_labels 一次调用，不要串行上百次（会打爆 run_code 超时且没有进度）。标签可枚举/清理：eda_get_net_labels + eda_delete_primitive(kind: netlabel|netport|netflag|text)。',
+  '引脚身份用 eda_get_pins 一次拿全（含 pinName/pinNumber），不要逐脚调 raw sch_PrimitivePin.get；原理图挪器件用 eda_move_component（保 designator/value），不要删了重放。完整工作手册：调 eda_workflow_guide。',
   '连接问题先调 eda_status：connectedClients=0 表示 EDA 未连接（确认 EDA 已打开、扩展已导入并开启「允许外部交互」、端口 39009 空闲）；extensionVersion 与 bridgeVersion 不一致或报 API method not allowed 表示扩展是旧版，需要重新导入 dsh-eda-bridge-extension.zip 并重启 EDA。',
 ].join('\n')

@@ -23,6 +23,8 @@ export interface EdaMcpConfig {
   allowRawApi?: boolean
   /** Path to lceda-pro.exe; empty lets eda_launch discover it. */
   edaExecutable?: string
+  /** Allow eda_auto_layout / eda_auto_route (off by default: place and route by hand). */
+  allowAutoLayoutRouting?: boolean
 }
 
 /**
@@ -38,6 +40,11 @@ export const Config = z.object({
   allowRawApi: z.boolean().default(true).volatile(),
   /** Optional path to lceda-pro.exe; empty means "let eda_launch discover it". */
   edaExecutable: z.string().default('').volatile(),
+  /**
+   * Automatic schematic layout/routing stays off unless enabled here: the default
+   * working style is grid-aligned manual placement plus a visual check.
+   */
+  allowAutoLayoutRouting: z.boolean().default(false).volatile(),
 })
 
 /** Hooks a settings registration hands to the DSH settings seam. */
@@ -182,6 +189,7 @@ function bridgeLaunchFor(active: EdaMcpConfig) {
   // back to the schema default otherwise, so a stale wrapper can never produce a
   // client config that fails validation.
   const allowRawApi = booleanField(active.allowRawApi, true)
+  const allowAutoLayoutRouting = booleanField(active.allowAutoLayoutRouting, false)
   const toolCallTimeoutMs = numberField(active.toolCallTimeoutMs, 60000)
   return {
     transport: 'stdio' as const,
@@ -191,6 +199,7 @@ function bridgeLaunchFor(active: EdaMcpConfig) {
     env: {
       ...runtime.extraEnv,
       DSH_EDA_MCP_ALLOW_RAW_API: allowRawApi ? '1' : '0',
+      DSH_EDA_ALLOW_AUTO_LAYOUT: allowAutoLayoutRouting ? '1' : '0',
       DSH_EDA_MCP_TOOL_TIMEOUT_MS: String(toolCallTimeoutMs),
       // eda_launch falls back to the registry / install dirs / PATH when empty.
       DSH_EDA_EXECUTABLE: typeof active.edaExecutable === 'string' ? active.edaExecutable : '',

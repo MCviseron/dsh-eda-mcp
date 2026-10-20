@@ -16,11 +16,15 @@ import {
   TRACK_WIDTH_MIL, VIA_HOLE_ABSOLUTE_MIN_MM, VIA_HOLE_MIN_MM, VIA_SIZES_MM,
   assertNetName, checkNetName, checkTrackWidth, checkVia, classifyNet, milToMm, suggestTrackWidthMil,
 } from './design-rules.ts'
+import { WORKFLOW_GUIDE, WORKFLOW_SUMMARY } from './workflow-guide.ts'
 
 const VERSION = '0.4.0'
 const WS_PORT = Number(process.env.DSH_EDA_MCP_WS_PORT ?? 39009)
 const WS_HOST = '127.0.0.1'
 const ALLOW_RAW_API = (process.env.DSH_EDA_MCP_ALLOW_RAW_API ?? '1') !== '0'
+// Automatic layout/routing is opt-in: placing parts and routing by hand is the
+// default working style (visual PNG check beats letting the app rearrange a sheet).
+const ALLOW_AUTO_LAYOUT = (process.env.DSH_EDA_ALLOW_AUTO_LAYOUT ?? '0') === '1'
 const TOOL_TIMEOUT_MS = Number(process.env.DSH_EDA_MCP_TOOL_TIMEOUT_MS ?? 60000)
 
 const MCP_UNITS_PER_INCH = 100
@@ -48,6 +52,15 @@ function safeAreas(paperName) {
     main: { left: 40, bottom: 200, right: paper.frame.right - 40, top: paper.frame.top - 25 },
     lowerLeft: { left: 40, bottom: 40, right: paper.titleBlock.left - 20, top: paper.titleBlock.top - 10 },
   }
+}
+
+/** Decode a text payload that may arrive as UTF-16LE (BOM or interleaved NULs). */
+function decodeTextPayload(value) {
+  const text = typeof value === 'string' ? value : ''
+  if (text === '') return text
+  const looksUtf16 = text.charCodeAt(0) === 0xfeff || (text.length > 3 && text.charCodeAt(1) === 0 && text.charCodeAt(3) === 0)
+  if (!looksUtf16) return text
+  return Buffer.from(text, 'latin1').toString('utf16le').replace(String.fromCharCode(0xfeff), '')
 }
 
 function checkPointInFrame(x, y, paperName, margin = 0) {
@@ -264,11 +277,11 @@ const TOOLS = [
   }, ['libraryUuid', 'uuid', 'x', 'y']) },
   { name: 'eda_place_net_flag', description: 'Place a power/ground net flag (VCC/GND etc.) on the active schematic page.', inputSchema: objectSchema({ identification: { type: 'string', enum: ['Power', 'Ground', 'AnalogGround', 'ProtectGround'] }, net: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, rotation: { type: 'integer', enum: [0, 90, 180, 270] }, mirror: { type: 'boolean' }, paper: { type: 'string' }, allowOutsideFrame: { type: 'boolean' } }, ['identification', 'net', 'x', 'y']) },
   { name: 'eda_place_net_port', description: 'Place a net port on the active schematic page.', inputSchema: objectSchema({ direction: { type: 'string', enum: ['IN', 'OUT', 'BI'] }, net: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, rotation: { type: 'integer', enum: [0, 90, 180, 270] }, mirror: { type: 'boolean' }, paper: { type: 'string' }, allowOutsideFrame: { type: 'boolean' } }, ['direction', 'net', 'x', 'y']) },
-  { name: 'eda_get_pins', description: 'List pins of one schematic component. Use the returned primitiveId with eda_place_net_flag_at_pin, eda_place_net_label_at_pin, or eda_set_no_connect.', inputSchema: objectSchema({ componentPrimitiveId: { type: 'string' } }, ['componentPrimitiveId']) },
+  { name: 'eda_get_pins', description: 'List pins of one schematic component in a single round trip, including pinName and pinNumber (no per-pin sch_PrimitivePin.get needed). Use the returned primitiveId with eda_place_net_flag_at_pin, eda_place_net_label_at_pin, or eda_set_no_connect.', inputSchema: objectSchema({ componentPrimitiveId: { type: 'string' } }, ['componentPrimitiveId']) },
   { name: 'eda_place_net_flag_at_pin', description: 'Place a power/ground net flag at a pin WITHOUT covering the symbol: the pin direction is read from the pin rotation, a stub wire of stubLength MCP units (default 20) is drawn outwards from the pin with the net name, and the flag is placed at its end. Pass offsetX/offsetY to place it manually (that disables the stub) or stubLength=0 for the old on-pin behaviour.', inputSchema: objectSchema({ pinPrimitiveId: { type: 'string' }, identification: { type: 'string', enum: ['Power', 'Ground', 'AnalogGround', 'ProtectGround'] }, net: { type: 'string' }, stubLength: { type: 'number' }, offsetX: { type: 'number' }, offsetY: { type: 'number' }, rotation: { type: 'integer', enum: [0, 90, 180, 270] }, mirror: { type: 'boolean' }, color: { type: 'string' }, lineWidth: { type: 'integer' }, lineType: { type: 'integer' }, paper: { type: 'string' }, allowOutsideFrame: { type: 'boolean' } }, ['pinPrimitiveId', 'identification', 'net']) },
   { name: 'eda_place_net_label_at_pin', description: 'Place a REAL net label at a pin (sch_PrimitiveAttribute.createNetLabel; falls back to text and reports method) WITHOUT covering the symbol: a stub wire of stubLength MCP units (default 20) is drawn outwards along the pin direction and the label goes at its end. offsetX/offsetY place it manually (disables the stub); stubLength=0 keeps the old on-pin behaviour.', inputSchema: objectSchema({ pinPrimitiveId: { type: 'string' }, net: { type: 'string' }, stubLength: { type: 'number' }, offsetX: { type: 'number' }, offsetY: { type: 'number' }, rotation: { type: 'integer', enum: [0, 90, 180, 270] }, fontSize: { type: 'number' }, color: { type: 'string' }, lineWidth: { type: 'integer' }, lineType: { type: 'integer' }, paper: { type: 'string' }, allowOutsideFrame: { type: 'boolean' } }, ['pinPrimitiveId', 'net']) },
   { name: 'eda_set_no_connect', description: 'Set or clear the no-connect flag on one or more schematic pins via sch_PrimitivePin.modify.', inputSchema: objectSchema({ primitiveIds: { type: 'array', items: { type: 'string' } }, noConnected: { type: 'boolean' } }, ['primitiveIds']) },
-  { name: 'eda_draw_wire', description: 'Draw a schematic wire (polyline). Coordinates are MCP units (0.01 inch).', inputSchema: objectSchema({ points: { type: 'array', items: { type: 'number' } }, net: { type: 'string' }, color: { type: 'string' }, lineWidth: { type: 'integer', minimum: 1, maximum: 10 }, lineType: { type: 'integer', enum: [0, 1, 2, 3] } }, ['points']) },
+  { name: 'eda_draw_wire', description: 'Draw a schematic wire (polyline). Coordinates are MCP units (0.01 inch). IMPORTANT: the net argument only sticks on a floating wire — as soon as an endpoint touches a pin, EDA recomputes the net from connectivity and the name you passed is overwritten (measured: TESTNET merged into LED_A). To join same-named nets across regions use eda_place_net_port or a net label; do not rely on two distantly drawn wires sharing a name.', inputSchema: objectSchema({ points: { type: 'array', items: { type: 'number' } }, net: { type: 'string' }, color: { type: 'string' }, lineWidth: { type: 'integer', minimum: 1, maximum: 10 }, lineType: { type: 'integer', enum: [0, 1, 2, 3] } }, ['points']) },
   { name: 'eda_draw_rectangle', description: 'Draw a rectangle. topLeftY is the UPPER y coordinate (max y); height extends downward. Coordinates are MCP units.', inputSchema: objectSchema({ topLeftX: { type: 'number' }, topLeftY: { type: 'number' }, width: { type: 'number' }, height: { type: 'number' }, cornerRadius: { type: 'number' }, rotation: { type: 'integer', enum: [0, 90, 180, 270] }, color: { type: 'string' }, fillColor: { type: 'string' }, lineWidth: { type: 'integer', minimum: 1, maximum: 10 }, lineType: { type: 'integer', enum: [0, 1, 2, 3] }, fillStyle: { type: 'string' } }, ['topLeftX', 'topLeftY', 'width', 'height']) },
   { name: 'eda_draw_functional_box', description: 'Draw a dashed functional-group box around one group of components, with an optional label. Margins and coordinates are MCP units; default margin 1 unit (about 0.254 mm).', inputSchema: objectSchema({ componentIds: { type: 'array', items: { type: 'string' } }, label: { type: 'string' }, margin: { type: 'number' }, color: { type: 'string' }, lineWidth: { type: 'integer', minimum: 1, maximum: 10 }, lineType: { type: 'integer', enum: [0, 1, 2, 3] } }) },
   { name: 'eda_draw_circle', description: 'Draw a circle. Coordinates are MCP units.', inputSchema: objectSchema({ centerX: { type: 'number' }, centerY: { type: 'number' }, radius: { type: 'number' }, color: { type: 'string' }, fillColor: { type: 'string' }, lineWidth: { type: 'integer', minimum: 1, maximum: 10 }, lineType: { type: 'integer', enum: [0, 1, 2, 3] }, fillStyle: { type: 'string' } }, ['centerX', 'centerY', 'radius']) },
@@ -281,14 +294,18 @@ const TOOLS = [
   { name: 'eda_get_nets', description: 'List nets of the current schematic project. Uses sch_Net.* first; when the schematic is not the active document those APIs return [] and this tool falls back to parsing sch_Netlist.getNetlist, reporting which source was used.', inputSchema: objectSchema({ name: { type: 'string' }, parseNetlist: { type: 'boolean' } }) },
   { name: 'eda_get_active_document', description: 'Return the document/tab that is currently active (documentType, uuid, tabId, parent project). Most tab-dependent APIs (sch_Net.*, netlist export, DRC) only work when the matching document is active - use eda_open_document to switch.', inputSchema: objectSchema({}) },
   { name: 'eda_open_document', description: 'Open/activate a document tab by uuid (dmt_EditorControl.openDocument). Works for a schematic page or a PCB, so tab-dependent APIs can run.', inputSchema: objectSchema({ documentUuid: { type: 'string' }, splitScreenId: { type: 'string' } }, ['documentUuid']) },
-  { name: 'eda_get_net_labels', description: 'List net-label / attribute primitives on the active schematic page (sch_PrimitiveAttribute.getAll), optionally for one parent primitive.', inputSchema: objectSchema({ parentPrimitiveId: { type: 'string' } }) },
-  { name: 'eda_place_net_label', description: 'Place a real net label at x/y via sch_PrimitiveAttribute.createNetLabel (falls back to a plain text label when that API is missing, and reports which method was used). Coordinates are MCP units.', inputSchema: objectSchema({ x: { type: 'number' }, y: { type: 'number' }, net: { type: 'string' }, fontSize: { type: 'number' }, rotation: { type: 'integer', enum: [0, 90, 180, 270] } }, ['x', 'y', 'net']) },
-  { name: 'eda_run_drc', description: 'Run schematic DRC and return the verbose result array.', inputSchema: objectSchema({ strict: { type: 'boolean' } }) },
-  { name: 'eda_auto_layout', description: 'Run schematic auto-layout (sch_Document.autoLayout).', inputSchema: objectSchema({ uuids: { type: 'array', items: { type: 'string' } } }) },
-  { name: 'eda_auto_route', description: 'Run schematic auto-routing (sch_Document.autoRouting).', inputSchema: objectSchema({ uuids: { type: 'array', items: { type: 'string' } } }) },
+  { name: 'eda_get_net_labels', description: 'List every label-like primitive on the active schematic page: attribute primitives (netlabel/netport/netflag) PLUS plain texts left by the createNetLabel fallback, so they can be audited and deleted. Reports kind/primitiveId/net per entry.', inputSchema: objectSchema({ parentPrimitiveId: { type: 'string' } }) },
+  { name: 'eda_place_net_label', description: 'Place a net label at x/y. The real API (sch_PrimitiveAttribute.createNetLabel) is probed once per session; when the build never answers, a plain TEXT label is placed instead, which carries no electrical meaning and must be paired with a stub wire. Pass probe:true to re-check.', inputSchema: objectSchema({ x: { type: 'number' }, y: { type: 'number' }, net: { type: 'string' }, fontSize: { type: 'number' }, rotation: { type: 'integer', enum: [0, 90, 180, 270] } }, ['x', 'y', 'net']) },
+  { name: 'eda_place_net_labels', description: 'Place many net labels in ONE call (per-pin or by coordinate) and report done/failed per item: a 133-label schematic used to exceed the caller timeout with no progress. items: [{ pinPrimitiveId, net, stubLength?, offsetX?, offsetY? }] or [{ x, y, net, fontSize? }].', inputSchema: objectSchema({ items: { type: 'array', items: { type: 'object', additionalProperties: true } }, probe: { type: 'boolean' } }, ['items']) },
+  { name: 'eda_run_drc', description: 'Run schematic DRC with includeVerboseError and return one entry per problem (type, message, primitiveId, x/y plus the raw record) instead of bare counts.', inputSchema: objectSchema({ strict: { type: 'boolean' } }) },
+  { name: 'eda_auto_layout', description: 'Run schematic auto-layout (sch_Document.autoLayout). DISABLED by default: automated layout is not used unless the user asks for it. Pass force:true only then.', inputSchema: objectSchema({ uuids: { type: 'array', items: { type: 'string' } }, force: { type: 'boolean' } }) },
+  { name: 'eda_auto_route', description: 'Run schematic auto-routing (sch_Document.autoRouting). DISABLED by default: route by hand unless the user explicitly asks. Pass force:true only then.', inputSchema: objectSchema({ uuids: { type: 'array', items: { type: 'string' } }, force: { type: 'boolean' } }) },
   { name: 'eda_export_netlist', description: 'Export the schematic netlist as text (default JLCEDA format). Returns null when no schematic is active - check eda_get_active_document / open the schematic page first.', inputSchema: objectSchema({ type: { type: 'string' } }) },
-  { name: 'eda_export_bom', description: 'Export the schematic BOM. csv returns text; xlsx returns a base64 data URL.', inputSchema: objectSchema({ format: { type: 'string', enum: ['csv', 'xlsx'] } }) },
-  { name: 'eda_delete_primitive', description: 'Delete a schematic primitive by kind and primitive id.', inputSchema: objectSchema({ kind: { type: 'string', enum: ['component', 'wire', 'rectangle', 'circle', 'arc', 'polygon', 'text'] }, primitiveId: { type: 'string' } }, ['kind', 'primitiveId']) },
+  { name: 'eda_export_bom', description: 'Export the schematic BOM. csv is decoded from UTF-16 to readable text; xlsx returns a base64 data URL.', inputSchema: objectSchema({ format: { type: 'string', enum: ['csv', 'xlsx'] } }) },
+  { name: 'eda_move_component', description: 'Move/rotate/mirror a schematic component (sch_PrimitiveComponent.modify) without deleting and re-placing it, so the designator and value survive.', inputSchema: objectSchema({ primitiveId: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, rotation: { type: 'number' }, mirror: { type: 'boolean' } }, ['primitiveId']) },
+  { name: 'eda_workflow_guide', description: 'Return the schematic working standard: grid-aligned manual placement, signal flow, when net labels/ports are required (a wire net name is overridden by connectivity), net-label fallback behaviour, batch placement and the verification order. Read it before laying out a sheet.', inputSchema: objectSchema({}) },
+  { name: 'eda_list_api_methods', description: 'List every API method the connected extension accepts (its allow-list). Call it when eda_api_call answers "API method not allowed".', inputSchema: objectSchema({}) },
+  { name: 'eda_delete_primitive', description: 'Delete a schematic primitive by kind and primitive id. Net ports, net flags and net labels are attribute primitives and need kind "netport"/"netflag"/"netlabel"; the text fallback labels are kind "text".', inputSchema: objectSchema({ kind: { type: 'string', enum: ['component', 'wire', 'rectangle', 'circle', 'arc', 'polygon', 'text', 'netport', 'netflag', 'netlabel'] }, primitiveId: { type: 'string' } }, ['kind', 'primitiveId']) },
   { name: 'eda_create_board', description: 'Create a board linking a schematic and a PCB (dmt_Board.createBoard).', inputSchema: objectSchema({ schematicUuid: { type: 'string' }, pcbUuid: { type: 'string' } }) },
   { name: 'eda_api_call', description: 'Call an allow-listed JLCEDA Pro extension API method directly.', inputSchema: objectSchema({ method: { type: 'string' }, args: { type: 'array' } }, ['method', 'args']) },
   { name: 'pcb_get_components', description: 'List PCB components (mil). includePins=true also reads pcb_PrimitiveComponent.getAllPinsByPrimitiveId per component, which is the accurate pad/net source; the fast summary pad list can be stale.', inputSchema: objectSchema({ layer: { type: ['string', 'integer'] }, locked: { type: 'boolean' }, includeBounds: { type: 'boolean' }, includePins: { type: 'boolean' } }) },
@@ -463,6 +480,11 @@ const pendingCalls = new Map()
 // EDA's own confirmation dialog, so "did the user confirm?" is answered by
 // watching whether new PCB components appear (low-frequency polling).
 let pcbComponentBaseline = null
+// Net-label capability, probed once per session (null = unknown), plus the plain
+// texts placed while the real net-label API was unavailable: without this registry
+// those labels could not be listed or cleaned up.
+let netLabelSupport = null
+const placedTextLabels = []
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms))
@@ -960,31 +982,89 @@ async function parseNetlist(previous, timeoutMs) {
   return { source: 'sch_Netlist.getNetlist', count: nets.length, nets, netlistBytes: text.length }
 }
 
-async function placeNetLabel(net, x, y, fontSize, timeoutMs) {
+async function placeNetLabel(net, x, y, fontSize, timeoutMs, options = {}) {
   if (net === '' || net === 'undefined') throw new Error('a net name is required')
   assertNetName(String(net), 'eda_place_net_label')
   const size = fontSize === undefined ? 12 : Number(fontSize)
-  try {
-    // Measured on JLCEDA Pro 3.2.186: eda.sch_PrimitiveAttribute.createNetLabel exists
-    // but never resolves, so it is probed with a short timeout and the plain text
-    // label (plus the stub wire drawn by the caller) is used instead.
-    const raw = await callExtension('sch_PrimitiveAttribute.createNetLabel', [x, y, net], Math.min(timeoutMs, 4000))
-    if (raw === undefined || raw === null) throw new Error('createNetLabel returned nothing')
-    return { method: 'netLabel', net, x, y, label: summarizePrimitive(raw) }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    if (!/not found|not available|not allowed|timed out|timeout/i.test(message)) throw error
-    const raw = await callExtension('sch_PrimitiveText.create', [x, y, net, 0, null, null, size, false, false, false, 1], timeoutMs)
-    const label = summarizePrimitive(raw)
-    return {
-      method: 'text', net, x, y, created: label.primitiveId !== undefined,
-      warning: 'createNetLabel could not be called (' + message + '). On JLCEDA Pro 3.2.186 the API exists but never resolves, so it is probed with a 4 s timeout. A plain text label does NOT create an electrical connection - the stub wire drawn by eda_place_net_label_at_pin carries the net, so keep it.',
-      ...(label.primitiveId === undefined
-        ? { hint: 'No label primitive was created: the schematic page must be the ACTIVE document (sch_PrimitiveText.create is tab-dependent). Use eda_get_active_document / eda_open_document, then retry.' }
-        : {}),
-      label,
+  if (options.probe === true) netLabelSupport = null
+  let failure = null
+  // The capability is probed ONCE per session: on JLCEDA Pro 3.2.186 createNetLabel
+  // exists but never resolves, and paying the 4s timeout for every one of hundreds
+  // of labels is what turned a 133-label run into 15 minutes.
+  if (netLabelSupport !== false) {
+    try {
+      const raw = await callExtension('sch_PrimitiveAttribute.createNetLabel', [x, y, net], Math.min(timeoutMs, 4000))
+      if (raw === undefined || raw === null) throw new Error('createNetLabel returned nothing')
+      netLabelSupport = true
+      return { method: 'netLabel', net, x, y, label: summarizePrimitive(raw) }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      if (!/not found|not available|not allowed|timed out|timeout|nothing|undefined/i.test(message)) throw error
+      failure = message
+      netLabelSupport = false
     }
   }
+  const raw = await callExtension('sch_PrimitiveText.create', [x, y, net, 0, null, null, size, false, false, false, 1], timeoutMs)
+  const label = summarizePrimitive(raw)
+  if (label.primitiveId !== undefined) {
+    placedTextLabels.push({ net: String(net), x, y, primitiveId: label.primitiveId })
+    if (placedTextLabels.length > 2000) placedTextLabels.shift()
+  }
+  return {
+    method: 'text', net, x, y, created: label.primitiveId !== undefined,
+    warning: 'createNetLabel is unavailable on this EDA build (' + (failure ?? 'probe already failed this session') +
+      '), so a plain TEXT label was placed: it carries no electrical meaning. The stub wire drawn by the caller is what joins the net; eda_get_net_labels lists these texts by name and id.',
+    ...(label.primitiveId === undefined
+      ? { hint: 'No label primitive was created: the schematic page must be the ACTIVE document (sch_PrimitiveText.create is tab-dependent). Use eda_get_active_document / eda_open_document, then retry.' }
+      : {}),
+    label,
+  }
+}
+
+/** Place a net flag or net label at a pin, pushing it outwards with a stub wire. */
+async function placeAtPin(toolName, args, timeoutMs) {
+  const pinPrimitiveId = String(args.pinPrimitiveId ?? '')
+  if (pinPrimitiveId === '') throw new Error('pinPrimitiveId is required')
+  const isFlag = toolName === 'eda_place_net_flag_at_pin'
+  assertNetName(String(args.net ?? ''), toolName)
+  const pin = await callExtension('sch_PrimitivePin.get', [pinPrimitiveId], timeoutMs)
+  const pinRecord = asRecord(pin)
+  const pinX = Number(pickValue(pinRecord, 'X', 'x'))
+  const pinY = Number(pickValue(pinRecord, 'Y', 'y'))
+  if (!Number.isFinite(pinX) || !Number.isFinite(pinY)) throw new Error('could not read pin position for ' + pinPrimitiveId)
+  const pinRotation = Number(pickValue(pinRecord, 'Rotation', 'rotation') ?? 0)
+  const direction = pinDirection(pinRotation)
+  const explicitOffset = args.offsetX !== undefined || args.offsetY !== undefined
+  // Placing a flag/label exactly ON the pin covers the symbol. Default: push it
+  // outwards along the pin direction and keep connectivity with a short stub wire.
+  const stubLength = args.stubLength === undefined
+    ? (explicitOffset ? 0 : 20)
+    : Math.max(0, Number(args.stubLength))
+  const x = pinX + direction.dx * stubLength + Number(args.offsetX ?? 0)
+  const y = pinY + direction.dy * stubLength + Number(args.offsetY ?? 0)
+  if (args.allowOutsideFrame !== true) {
+    const problem = checkPointInFrame(x, y, args.paper, 5) ?? checkPointAgainstTitleBlock(x, y, args.paper, 5)
+    if (problem !== undefined) {
+      throw new Error(toolName + ' refused: ' + problem + ' - reduce stubLength or pass offsetX/offsetY to place it elsewhere.')
+    }
+  }
+  let stub
+  if (stubLength > 0 && typeof args.net === 'string' && args.net !== '') {
+    stub = summarizePrimitive(await callExtension('sch_PrimitiveWire.create', [
+      [pinX, pinY, x, y], String(args.net), args.color === undefined ? undefined : String(args.color),
+      args.lineWidth === undefined ? undefined : Number(args.lineWidth), args.lineType === undefined ? undefined : Number(args.lineType),
+    ], timeoutMs))
+  }
+  const placement = { pin: { primitiveId: pinPrimitiveId, x: pinX, y: pinY, rotation: pinRotation }, direction, stubLength, x, y, stub }
+  if (isFlag) {
+    const flag = await callExtension('sch_PrimitiveComponent.createNetFlag', [
+      String(args.identification), String(args.net), x, y,
+      args.rotation === undefined ? pinRotation : Number(args.rotation), Boolean(args.mirror ?? false),
+    ], timeoutMs)
+    return { ...placement, flag: summarizePrimitive(flag) }
+  }
+  const label = await placeNetLabel(String(args.net), x, y, args.fontSize, timeoutMs)
+  return { ...label, ...placement }
 }
 
 /**
@@ -1053,6 +1133,45 @@ async function resolveProjectUuid(args, timeoutMs) {
       resolved.map(item => item.friendly || item.uuid).slice(0, 20).join(', '))
   }
   return { uuid: matched.uuid, matched }
+}
+
+/** Wait (bounded) until getCurrentProjectInfo reports the expected project uuid. */
+async function waitForActiveProject(uuid, timeoutMs = 4000) {
+  const deadline = Date.now() + timeoutMs
+  let lastActive = null
+  for (;;) {
+    try {
+      const info = asRecord(await callExtension('dmt_Project.getCurrentProjectInfo', [], 3000))
+      lastActive = String(pickValue(info, 'uuid', 'Uuid') ?? '') || null
+      if (lastActive === uuid) return { active: true, project: info }
+    } catch {
+      // The app answers undefined while the project is switching.
+    }
+    if (Date.now() > deadline) return { active: false, project: null, lastActive }
+    await sleep(400)
+  }
+}
+
+/** Collect the internal ids a project owns (schematic / page / pcb uuids). */
+function internalIdsOf(info) {
+  const ids = new Set()
+  const boards = Array.isArray(asRecord(info).data) ? asRecord(info).data : []
+  for (const board of boards) {
+    const record = asRecord(board)
+    const boardUuid = String(pickValue(record, 'uuid', 'Uuid') ?? '')
+    if (boardUuid !== '') ids.add(boardUuid)
+    for (const docKey of ['schematic', 'pcb']) {
+      const doc = asRecord(record[docKey])
+      const docUuid = String(pickValue(doc, 'uuid', 'Uuid') ?? '')
+      if (docUuid !== '') ids.add(docUuid)
+      const pages = Array.isArray(doc.pages) ? doc.pages : []
+      for (const page of pages) {
+        const pageUuid = String(pickValue(asRecord(page), 'uuid', 'Uuid') ?? '')
+        if (pageUuid !== '') ids.add(pageUuid)
+      }
+    }
+  }
+  return ids
 }
 
 async function executeTool(name, rawArgs, timeoutMs) {
@@ -1136,7 +1255,35 @@ async function executeTool(name, rawArgs, timeoutMs) {
       const landed = raw !== null && raw !== undefined
       let opened = false
       if (args.open === true && uuid !== undefined) {
-        try { opened = (await callExtension('dmt_Project.openProject', [uuid], timeoutMs)) !== false } catch { opened = false }
+        try {
+          await callExtension('dmt_Project.openProject', [uuid], timeoutMs)
+          // Same as eda_open_project: trust the observed state, not the return value.
+          opened = (await waitForActiveProject(uuid, 4000)).active
+        } catch {
+          opened = false
+        }
+      }
+      // Import copies the file verbatim, so schematic/page/pcb uuids inside the new
+      // project can collide with the source. Detect it and say so instead of leaving a
+      // silent data-integrity trap.
+      let collisions = null
+      if (landed && uuid !== undefined && args.checkCollisions !== false) {
+        try {
+          const mine = await callExtension('dmt_Project.getProjectInfo', [uuid], toolTimeout(args, timeoutMs))
+          const myIds = internalIdsOf(mine)
+          const others = await callExtension('dmt_Project.getAllProjectsUuid', [], toolTimeout(args, timeoutMs))
+          const list = (Array.isArray(others) ? others.map(String) : []).filter(other => other !== uuid).slice(0, 20)
+          collisions = []
+          for (const other of list) {
+            const info = await callExtension('dmt_Project.getProjectInfo', [other], timeoutMs).catch(() => undefined)
+            const shared = [...internalIdsOf(info)].filter(sharedId => myIds.has(sharedId))
+            if (shared.length > 0) {
+              collisions.push({ projectUuid: other, friendlyName: pickValue(asRecord(info), 'friendlyName', 'FriendlyName') ?? null, sharedIds: shared })
+            }
+          }
+        } catch {
+          collisions = null
+        }
       }
       return {
         ok: landed,
@@ -1146,6 +1293,7 @@ async function executeTool(name, rawArgs, timeoutMs) {
         teamUuid,
         uuid: uuid ?? null,
         opened,
+        collisions,
         result: raw ?? null,
         hint: landed ? null : 'The app returned nothing: the import did not create a project. That means this build ignores the saveTo target (same limitation as createProject), so import cannot be used to create projects here.',
       }
@@ -1247,9 +1395,18 @@ async function executeTool(name, rawArgs, timeoutMs) {
     case 'eda_open_project': {
       const resolvedProject = await resolveProjectUuid(args, timeoutMs)
       const uuid = resolvedProject.uuid
-      const opened = await callExtension('dmt_Project.openProject', [uuid], toolTimeout(args, timeoutMs))
-      const current = await callExtension('dmt_Project.getCurrentProjectInfo', [], timeoutMs).catch(() => undefined)
-      return { opened: opened !== false, uuid, matched: resolvedProject.matched, current: current === undefined ? null : summarizePrimitive(current) }
+      const returned = await callExtension('dmt_Project.openProject', [uuid], toolTimeout(args, timeoutMs))
+      // openProject returned false on the first call although the switch had already
+      // happened, so report what the app actually has open instead of its boolean.
+      const activation = await waitForActiveProject(uuid, args.verifyMs === undefined ? 4000 : Number(args.verifyMs))
+      return {
+        opened: activation.active,
+        openReturned: returned !== false,
+        uuid,
+        matched: resolvedProject.matched,
+        current: activation.active ? summarizePrimitive(activation.project) : null,
+        ...(activation.active ? {} : { hint: 'The project did not become active within the verification window (last active: ' + (activation.lastActive ?? 'unknown') + '); it may still be loading, or the app refused the switch.' }),
+      }
     }
 
     case 'eda_get_workspace': {
@@ -1337,13 +1494,30 @@ async function executeTool(name, rawArgs, timeoutMs) {
       const source = await resolveProjectUuid({
         uuid: args.sourceUuid, name: args.sourceName,
       }, timeoutMs)
-      const uuid = await callExtension('dmt_Project.copyProject', [
-        source.uuid,
-        args.targetTeamUuid === undefined ? undefined : String(args.targetTeamUuid),
-        args.targetFolderUuid === undefined ? undefined : String(args.targetFolderUuid),
-        args.newFriendlyName === undefined ? undefined : String(args.newFriendlyName),
-        args.newName === undefined ? undefined : String(args.newName),
-      ], toolTimeout(args, timeoutMs))
+      // copyProject answered nothing for every argument combination on 3.2.186, and
+      // returning {copied:false} with no reason left the caller guessing.
+      let copyRaw
+      try {
+        copyRaw = await callExtension('dmt_Project.copyProject', [
+          source.uuid,
+          args.targetTeamUuid === undefined ? undefined : String(args.targetTeamUuid),
+          args.targetFolderUuid === undefined ? undefined : String(args.targetFolderUuid),
+          args.newFriendlyName === undefined ? undefined : String(args.newFriendlyName),
+          args.newName === undefined ? undefined : String(args.newName),
+        ], toolTimeout(args, timeoutMs))
+      } catch (failure) {
+        throw new Error('eda_copy_project failed: ' + (failure instanceof Error ? failure.message : String(failure)))
+      }
+      const copyUuid = typeof copyRaw === 'string' ? copyRaw : String(pickValue(asRecord(copyRaw), 'uuid', 'Uuid') ?? '')
+      return {
+        copied: copyUuid !== '',
+        sourceUuid: source.uuid,
+        uuid: copyUuid === '' ? null : copyUuid,
+        raw: copyRaw ?? null,
+        hint: copyUuid === ''
+          ? 'The app returned no uuid and created nothing: copyProject does not work on this build for local projects (same family as createProject/deleteProject). Duplicate it in the app, or export with eda_export_project and import it back with eda_import_project to get an independent copy.'
+          : null,
+      }
       return { copied: typeof uuid === 'string' && uuid !== '', sourceUuid: source.uuid, uuid: uuid ?? null }
     }
 
@@ -1376,7 +1550,8 @@ async function executeTool(name, rawArgs, timeoutMs) {
       let opened = false
       if (args.open === true) {
         try {
-          opened = (await callExtension('dmt_Project.openProject', [uuid], timeoutMs)) !== false
+          await callExtension('dmt_Project.openProject', [uuid], timeoutMs)
+          opened = (await waitForActiveProject(uuid, 4000)).active
         } catch {
           opened = false
         }
@@ -1559,70 +1734,108 @@ async function executeTool(name, rawArgs, timeoutMs) {
     case 'eda_get_pins': {
       const componentPrimitiveId = String(args.componentPrimitiveId ?? '')
       if (componentPrimitiveId === '') throw new Error('componentPrimitiveId is required')
+      // One call already returns pinName/pinNumber (ISCH_PrimitiveComponentPin);
+      // summarising it used to drop exactly those fields, forcing one sch_PrimitivePin.get
+      // round trip per pin (135 of them for a mid-size schematic).
       const raw = await callExtension('sch_PrimitiveComponent.getAllPinsByPrimitiveId', [componentPrimitiveId], timeoutMs)
-      if (Array.isArray(raw)) return raw.map(summarizePrimitive)
-      return raw
+      if (!Array.isArray(raw)) return raw
+      return raw.map((entry) => {
+        const record = asRecord(entry)
+        return {
+          primitiveId: pickValue(record, 'PrimitiveId', 'primitiveId'),
+          pinNumber: pickValue(record, 'PinNumber', 'pinNumber') ?? null,
+          pinName: pickValue(record, 'PinName', 'pinName') ?? null,
+          x: pickValue(record, 'X', 'x'),
+          y: pickValue(record, 'Y', 'y'),
+          rotation: pickValue(record, 'Rotation', 'rotation') ?? 0,
+          pinLength: pickValue(record, 'PinLength', 'pinLength') ?? null,
+          noConnected: pickValue(record, 'NoConnected', 'noConnected') ?? null,
+        }
+      })
     }
 
     case 'eda_place_net_flag_at_pin':
-    case 'eda_place_net_label_at_pin': {
-      const pinPrimitiveId = String(args.pinPrimitiveId ?? '')
-      if (pinPrimitiveId === '') throw new Error('pinPrimitiveId is required')
-      assertNetName(String(args.net ?? ''), name === 'eda_place_net_flag_at_pin' ? 'eda_place_net_flag_at_pin' : 'eda_place_net_label_at_pin')
-      const pin = await callExtension('sch_PrimitivePin.get', [pinPrimitiveId], timeoutMs)
-      const pinRecord = asRecord(pin)
-      const pinX = Number(pickValue(pinRecord, 'X', 'x'))
-      const pinY = Number(pickValue(pinRecord, 'Y', 'y'))
-      if (!Number.isFinite(pinX) || !Number.isFinite(pinY)) throw new Error('could not read pin position for ' + pinPrimitiveId)
-      const pinRotation = Number(pickValue(pinRecord, 'Rotation', 'rotation') ?? 0)
-      const direction = pinDirection(pinRotation)
-      const explicitOffset = args.offsetX !== undefined || args.offsetY !== undefined
-      // Placing a flag/label exactly ON the pin covers the symbol. Default: push it
-      // outwards along the pin direction and keep connectivity with a short stub wire.
-      const stubLength = args.stubLength === undefined
-        ? (explicitOffset ? 0 : 20)
-        : Math.max(0, Number(args.stubLength))
-      const x = pinX + direction.dx * stubLength + Number(args.offsetX ?? 0)
-      const y = pinY + direction.dy * stubLength + Number(args.offsetY ?? 0)
-      if (args.allowOutsideFrame !== true) {
-        const problem = checkPointInFrame(x, y, args.paper, 5) ?? checkPointAgainstTitleBlock(x, y, args.paper, 5)
-        if (problem !== undefined) {
-          throw new Error((name === 'eda_place_net_flag_at_pin' ? 'eda_place_net_flag_at_pin' : 'eda_place_net_label_at_pin') +
-            ' refused: ' + problem + ' - reduce stubLength or pass offsetX/offsetY to place it elsewhere.')
-        }
-      }
-      let stub
-      if (stubLength > 0 && typeof args.net === 'string' && args.net !== '') {
-        stub = summarizePrimitive(await callExtension('sch_PrimitiveWire.create', [
-          [pinX, pinY, x, y], String(args.net), args.color === undefined ? undefined : String(args.color),
-          args.lineWidth === undefined ? undefined : Number(args.lineWidth), args.lineType === undefined ? undefined : Number(args.lineType),
-        ], timeoutMs))
-      }
-      const placement = { pin: { primitiveId: pinPrimitiveId, x: pinX, y: pinY, rotation: pinRotation }, direction, stubLength, x, y, stub }
-      if (name === 'eda_place_net_flag_at_pin') {
-        const flag = await callExtension('sch_PrimitiveComponent.createNetFlag', [
-          String(args.identification), String(args.net), x, y,
-          args.rotation === undefined ? pinRotation : Number(args.rotation), Boolean(args.mirror ?? false),
-        ], timeoutMs)
-        return { ...placement, flag: summarizePrimitive(flag) }
-      }
-      const label = await placeNetLabel(String(args.net), x, y, args.fontSize, timeoutMs)
-      return { ...label, ...placement }
-    }
+    case 'eda_place_net_label_at_pin':
+      return await placeAtPin(name, args, timeoutMs)
 
     case 'eda_place_net_label': {
       const x = Number(args.x)
       const y = Number(args.y)
       if (!Number.isFinite(x) || !Number.isFinite(y)) throw new Error('eda_place_net_label requires numeric x/y')
-      return await placeNetLabel(String(args.net), x, y, args.fontSize, timeoutMs)
+      return await placeNetLabel(String(args.net), x, y, args.fontSize, timeoutMs, { probe: args.probe === true })
+    }
+
+    case 'eda_place_net_labels': {
+      // One MCP round trip for many labels: a 133-label schematic used to exceed the
+      // caller's timeout with no way to learn what had already been placed.
+      const items = Array.isArray(args.items) ? args.items.map(asRecord) : []
+      if (items.length === 0) throw new Error('eda_place_net_labels requires items: [{ pinPrimitiveId, net }] or [{ x, y, net }]')
+      const results = []
+      for (const item of items) {
+        const net = item.net === undefined ? '' : String(item.net)
+        try {
+          const placed = item.pinPrimitiveId !== undefined
+            ? await placeAtPin('eda_place_net_label_at_pin', { ...item, net }, timeoutMs)
+            : await placeNetLabel(net, Number(item.x), Number(item.y), item.fontSize, timeoutMs, { probe: args.probe === true })
+          results.push({ ok: true, net, ...placed })
+        } catch (error) {
+          results.push({ ok: false, net, error: error instanceof Error ? error.message : String(error) })
+        }
+      }
+      const done = results.filter(entry => entry.ok).length
+      return {
+        total: items.length,
+        done,
+        failed: items.length - done,
+        method: netLabelSupport === true ? 'netLabel' : 'text',
+        results,
+      }
     }
 
     case 'eda_get_net_labels': {
-      const raw = await callExtension('sch_PrimitiveAttribute.getAll', [
+      // Enumerate every label-like primitive: net labels/flags/ports are attribute
+      // primitives, while the text fallback (createNetLabel unavailable) lands in
+      // sch_PrimitiveText. Listing only attributes reported count:0 right after a
+      // successful placement, so the labels could not be found or cleaned up.
+      const attributes = await callExtension('sch_PrimitiveAttribute.getAll', [
         args.parentPrimitiveId === undefined ? undefined : String(args.parentPrimitiveId),
-      ], timeoutMs)
-      if (!Array.isArray(raw)) return raw
-      return { count: raw.length, labels: raw.map(summarizePrimitive) }
+      ], timeoutMs).catch(() => [])
+      const texts = args.parentPrimitiveId === undefined
+        ? await callExtension('sch_PrimitiveText.getAll', [], timeoutMs).catch(() => [])
+        : []
+      const entries = []
+      for (const entry of Array.isArray(attributes) ? attributes : []) {
+        const record = asRecord(entry)
+        entries.push({
+          primitiveId: pickValue(record, 'PrimitiveId', 'primitiveId'),
+          kind: String(pickValue(record, 'PrimitiveType', 'primitiveType', 'Type', 'type') ?? 'attribute'),
+          net: pickValue(record, 'Net', 'net') ?? null,
+          userValue: pickValue(record, 'UserValue', 'userValue', 'Value', 'value') ?? null,
+          x: pickValue(record, 'X', 'x'),
+          y: pickValue(record, 'Y', 'y'),
+        })
+      }
+      for (const entry of Array.isArray(texts) ? texts : []) {
+        const record = asRecord(entry)
+        const content = String(pickValue(record, 'Content', 'content', 'Text', 'text') ?? '')
+        if (content === '') continue
+        entries.push({
+          primitiveId: pickValue(record, 'PrimitiveId', 'primitiveId'),
+          kind: 'text',
+          net: content,
+          userValue: content,
+          x: pickValue(record, 'X', 'x'),
+          y: pickValue(record, 'Y', 'y'),
+        })
+      }
+      return {
+        count: entries.length,
+        attributeCount: Array.isArray(attributes) ? attributes.length : 0,
+        textCount: Array.isArray(texts) ? texts.length : 0,
+        sessionTextLabels: placedTextLabels.length,
+        note: 'kind "text" entries are plain texts (no electrical meaning). Delete any entry with eda_delete_primitive(kind: "netlabel"|"netport"|"netflag"|"text", primitiveId).',
+        labels: entries,
+      }
     }
 
     case 'eda_get_active_document': {
@@ -1719,8 +1932,30 @@ async function executeTool(name, rawArgs, timeoutMs) {
     case 'eda_save_document':
       return await callExtension('sch_Document.save', [], timeoutMs)
 
-    case 'eda_zoom_to_fit':
-      return await callExtension('dmt_EditorControl.zoomToAllPrimitives', [args.tabId], timeoutMs)
+    case 'eda_zoom_to_fit': {
+      // The API reported bounds outside the sheet (left:-340, bottom:-772.9 on A4),
+      // which is useless for a caller that wants to know what it is looking at.
+      // Clamp the region to the page frame and re-apply it.
+      const raw = await callExtension('dmt_EditorControl.zoomToAllPrimitives', [args.tabId], timeoutMs)
+      const record = asRecord(raw)
+      const left = Number(pickValue(record, 'left', 'Left'))
+      const right = Number(pickValue(record, 'right', 'Right'))
+      const bottom = Number(pickValue(record, 'bottom', 'Bottom'))
+      const top = Number(pickValue(record, 'top', 'Top'))
+      if (![left, right, bottom, top].every(value => Number.isFinite(value))) return raw
+      const frame = paperOf(args.paper).frame
+      const clamped = {
+        left: Math.max(frame.left, left), right: Math.min(frame.right, right),
+        bottom: Math.max(frame.bottom, bottom), top: Math.min(frame.top, top),
+      }
+      if (clamped.left >= clamped.right || clamped.bottom >= clamped.top) {
+        return { ...record, requested: { left, right, bottom, top }, clamped: null, note: 'the primitive bounds do not overlap the page frame' }
+      }
+      await callExtension('dmt_EditorControl.zoomToRegion', [
+        clamped.left, clamped.right, clamped.top, clamped.bottom, args.tabId,
+      ], timeoutMs)
+      return { ...record, requested: { left, right, bottom, top }, clamped }
+    }
 
     case 'eda_zoom_to_region':
       return await callExtension('dmt_EditorControl.zoomToRegion', [
@@ -1763,23 +1998,100 @@ async function executeTool(name, rawArgs, timeoutMs) {
       return parsed
     }
 
-    case 'eda_run_drc':
-      return await callExtension('sch_Drc.check', [args.strict === undefined ? true : Boolean(args.strict), false, true], timeoutMs)
+    case 'eda_run_drc': {
+      // includeVerboseError:true makes the API return one record per problem; the
+      // boolean overload only said "something is wrong" and gave nothing to locate.
+      const verbose = await callExtension('sch_Drc.check', [
+        args.strict === undefined ? true : Boolean(args.strict), false, true,
+      ], toolTimeout(args, timeoutMs))
+      if (Array.isArray(verbose)) {
+        return {
+          ok: verbose.length === 0,
+          count: verbose.length,
+          entries: verbose.map((entry) => {
+            const record = asRecord(entry)
+            return {
+              type: pickValue(record, 'Type', 'type', 'Level', 'level') ?? null,
+              message: pickValue(record, 'Message', 'message', 'Error', 'error', 'Description', 'description') ?? null,
+              primitiveId: pickValue(record, 'PrimitiveId', 'primitiveId') ?? null,
+              x: pickValue(record, 'X', 'x') ?? null,
+              y: pickValue(record, 'Y', 'y') ?? null,
+              raw: entry,
+            }
+          }),
+          hint: 'Field names vary by EDA build; "raw" keeps the untouched record.',
+        }
+      }
+      return { ok: Boolean(verbose), count: null, entries: [], raw: verbose }
+    }
 
     case 'eda_auto_layout':
-      return await callExtension('sch_Document.autoLayout', [Array.isArray(args.uuids) ? { uuids: args.uuids.map(String) } : undefined], timeoutMs)
+    case 'eda_auto_route': {
+      // Standing rule from the user: do not auto-lay-out or auto-route unless asked.
+      if (ALLOW_AUTO_LAYOUT !== true && args.force !== true) {
+        throw new Error(name + ' is disabled (settings allowAutoLayoutRouting=false / env DSH_EDA_ALLOW_AUTO_LAYOUT). ' +
+          'Place parts on the grid and route by hand, or pass force:true only when the user explicitly asked for automatic layout/routing.')
+      }
+      const payload = Array.isArray(args.uuids) ? { uuids: args.uuids.map(String) } : undefined
+      return await callExtension(name === 'eda_auto_layout' ? 'sch_Document.autoLayout' : 'sch_Document.autoRouting', [payload], toolTimeout(args, timeoutMs))
+    }
 
-    case 'eda_auto_route':
-      return await callExtension('sch_Document.autoRouting', [Array.isArray(args.uuids) ? { uuids: args.uuids.map(String) } : undefined], timeoutMs)
+    case 'eda_export_netlist': {
+      const payload = await callExtension('sch_ManufactureData.getNetlistFile', [
+        undefined, typeof args.type === 'string' && args.type !== '' ? args.type : undefined,
+      ], toolTimeout(args, timeoutMs))
+      const text = typeof payload === 'string'
+        ? payload
+        : (payload !== null && typeof payload === 'object' && typeof payload.text === 'string' ? payload.text : undefined)
+      if (text === undefined) return { parsed: false, netlist: payload ?? null }
+      if (args.format === 'text') return { parsed: false, netlistText: text, bytes: text.length }
+      // The API hands back a JSON document; returning it as an escaped string forced
+      // callers to parse twice (and once more through the MCP envelope).
+      try {
+        return { parsed: true, bytes: text.length, netlist: JSON.parse(text) }
+      } catch {
+        return { parsed: false, bytes: text.length, netlistText: text }
+      }
+    }
 
-    case 'eda_export_netlist':
-      return await callExtension('sch_ManufactureData.getNetlistFile', [undefined, typeof args.type === 'string' && args.type !== '' ? args.type : 'JLCEDA'], timeoutMs)
+    case 'eda_export_bom': {
+      const format = args.format === 'xlsx' ? 'xlsx' : 'csv'
+      const payload = await callExtension('sch_ManufactureData.getBomFile', [undefined, format], toolTimeout(args, timeoutMs))
+      if (format === 'xlsx') return payload
+      const raw = typeof payload === 'string'
+        ? payload
+        : (payload !== null && typeof payload === 'object' && typeof payload.text === 'string' ? payload.text : '')
+      // CSV arrives as UTF-16LE bytes; returned verbatim it read as NUL-separated junk.
+      return { format, bom: decodeTextPayload(raw) }
+    }
 
-    case 'eda_export_bom':
-      return await callExtension('sch_ManufactureData.getBomFile', [undefined, args.format === 'xlsx' ? 'xlsx' : 'csv'], timeoutMs)
+    case 'eda_delete_primitive': {
+      const kind = String(args.kind)
+      // Net ports / flags / labels are attribute primitives; without these kinds the
+      // only way to remove one was to remember the id from the placement call.
+      const className = kind === 'netport' || kind === 'netflag' || kind === 'netlabel'
+        ? 'sch_PrimitiveAttribute'
+        : primitiveKindToClass(kind)
+      return await callExtension(className + '.delete', [String(args.primitiveId)], timeoutMs)
+    }
 
-    case 'eda_delete_primitive':
-      return await callExtension(primitiveKindToClass(String(args.kind)) + '.delete', [String(args.primitiveId)], timeoutMs)
+    case 'eda_move_component':
+      // Schematic parts could only be moved through raw sch_PrimitiveComponent.modify.
+      return await callExtension('sch_PrimitiveComponent.modify', [String(args.primitiveId), {
+        x: args.x === undefined ? undefined : Number(args.x),
+        y: args.y === undefined ? undefined : Number(args.y),
+        rotation: args.rotation === undefined ? undefined : Number(args.rotation),
+        mirror: args.mirror === undefined ? undefined : Boolean(args.mirror),
+      }], timeoutMs)
+
+    case 'eda_list_api_methods':
+      return { count: ALLOWED_API.size, methods: [...ALLOWED_API].sort() }
+
+    case 'eda_workflow_guide':
+      return { summary: WORKFLOW_SUMMARY, guide: WORKFLOW_GUIDE, autoLayoutAllowed: ALLOW_AUTO_LAYOUT }
+
+    case 'eda_workflow_guide':
+      return { summary: WORKFLOW_SUMMARY, guide: WORKFLOW_GUIDE, autoLayoutAllowed: ALLOW_AUTO_LAYOUT }
 
     case 'eda_create_board':
       return await callExtension('dmt_Board.createBoard', [args.schematicUuid, args.pcbUuid], timeoutMs)
@@ -1787,7 +2099,11 @@ async function executeTool(name, rawArgs, timeoutMs) {
     case 'eda_api_call': {
       if (!ALLOW_RAW_API) throw new Error('eda_api_call is disabled by settings (allowRawApi=false)')
       const method = String(args.method ?? '')
-      if (!ALLOWED_API.has(method)) throw new Error('API method not allowed: ' + method)
+      if (!ALLOWED_API.has(method)) {
+        throw new Error('API method not allowed: ' + method + '. The extension only accepts its allow-list (' +
+          ALLOWED_API.size + ' methods): call eda_list_api_methods to get it. Common schematic helpers such as ' +
+          'sch_PrimitiveComponent.getAllPinsByPrimitiveId and sch_PrimitivePin.get are already wrapped by eda_get_pins.')
+      }
       return await callExtension(method, Array.isArray(args.args) ? args.args : [], timeoutMs)
     }
 

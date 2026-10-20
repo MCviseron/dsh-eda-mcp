@@ -1,5 +1,51 @@
 # Changelog
 
+## 未发布（unreleased）
+
+### 原理图批量落地暴露的 15 个问题：修了 13 个，2 个只能记为限制
+
+全部来自一次真实的 45 网络原理图绘制（EDA 3.2.186、已登录、半离线）。**本轮没有改动扩展白名单，线协议仍是 0.4.0，已装扩展无需重导。**
+
+#### 网络标签 / 可用性（影响最大的三项）
+
+- **createNetLabel 探测不再每次都付 4 秒**：探测结论按**会话缓存**（`netLabelSupport`），首次失败后直接走文本降级；`probe:true` 可强制重测。133 个标签从 ≈15 分钟降到一次批量调用。
+- **新增 `eda_place_net_labels([…])`**：一次 MCP 调用放多枚标签（按引脚或坐标），逐条返回 `ok/error` 并给出 `done/failed/total`，不再"超时前无进度、只能重来推断"。
+- **`eda_get_net_labels` 现在真能列出标签**：同时枚举 `sch_PrimitiveAttribute.getAll`（netlabel/netport/netflag）与 `sch_PrimitiveText.getAll`（文本降级标签），并报告 `attributeCount/textCount/sessionTextLabels`；之前放置后仍 `count:0`。
+
+#### 静默失败与不可审计图元
+
+- **`eda_copy_project` 不再静默**：底层返回值原样透出（`raw`），异常包装成可读错误，`copied:false` 时给 `hint`（该构建对本地工程无效，建议应用内复制或导出+导入生成独立副本）。
+- **`eda_delete_primitive` 支持 `netport` / `netflag` / `netlabel`**（走 `sch_PrimitiveAttribute.delete`）：网络端口不再只能靠记住放置时的 id 才能删。
+- **新增 `eda_move_component`**（`sch_PrimitiveComponent.modify`）：原理图挪器件不必删除重放，designator/value 不丢。
+
+#### 往返次数与返回值规范
+
+- **`eda_get_pins` 一次返回 `pinName`/`pinNumber`**（`getAllPinsByPrimitiveId` 的完整记录，不再被 `summarizePrimitive` 削掉）：20 器件 135 引脚从 135 次额外往返降到 20 次。
+- **`eda_run_drc` 返回逐条明细**：改用 `includeVerboseError:true`，给出 `type/message/primitiveId/x/y` 加原始记录；之前只有 `[{type:"warn",count:4}]`。
+- **`eda_export_netlist` 单层结构**：结果是已解析对象（`{parsed:true, netlist}`），不再需要二次 `JSON.parse`；`format:"text"` 保留原始字符串。
+- **`eda_export_bom` CSV 解码 UTF-16LE**：不再出现 `N\u0000o\u0000.` 这种不可读文本。
+- **`eda_open_project` / `eda_import_project` 的 `opened` 可信了**：改为轮询 `getCurrentProjectInfo` 直到 uuid 匹配（默认 4 秒），同时保留 `openReturned` 反映 API 原始布尔；首次返回 false 但实际已切换的问题不再误导调用方。
+
+#### 自动布局/布线策略（按你的要求）
+
+- **默认禁止**：`eda_auto_layout` / `eda_auto_route` 现在需要 `force:true` **且**设置里开启「允许原理图自动布局/自动布线」（新配置项 `allowAutoLayoutRouting`，默认关；环境变量 `DSH_EDA_ALLOW_AUTO_LAYOUT`）。
+- 新增 `eda_workflow_guide` 工具与 `docs/schematic-workflow.md`：栅格对齐、信号流向、跨区域走网络端口、版面用导出图片核对；系统提示同步加了 4 条规范（含"同名导线不成立"的实测结论）。
+
+#### 其他
+
+- `eda_zoom_to_fit` 返回的越界 bounds 现在**按图框裁剪**并重新应用（之前 `left:-340 / bottom:-772.9`）。
+- `eda_api_call` 报 `API method not allowed` 时给出白名单规模与指引；新增 **`eda_list_api_methods`** 直接列出全部 166 条方法。
+- `eda_import_project` 增加 **uuid 碰撞检查**：导入后对比其它工程的 internal ids（schematic/page/pcb），在 `collisions` 里报告（`checkCollisions:false` 关闭）。
+
+#### 只能记为限制（无法在插件内修复）
+
+- **原理图元件与网络端口不在 `eda_get_components` / BOM / 网表里**：属应用行为。已提供 `eda_get_net_labels` 枚举 + `kind:"netport"` 删除来替代审计。
+- **导入 `.epro2` 不重生成内部 uuid**：属应用导入实现。插件只能检测并告警（见上）。
+
+#### 附录（已写进工具说明与文档）
+
+- `eda_draw_wire` 的 `net` 只对**悬空导线**有效：端点一旦接触引脚，EDA 会按连通性重算网络名（实测 `TESTNET` 并入 `LED_A`）；跨区域同名网络必须用网络端口/网络标签。
+
 ## 0.7.1 — 2026-10-20
 
 构建产物修正：**扩展 zip 只保留带版本号的那一个**。

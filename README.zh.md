@@ -373,6 +373,13 @@ pnpm check       # 以上三步
 - 修改桥接端口需要同时改桥接环境变量和 `jlc-extension/api-bridge.js`，再重新构建并重新导入扩展。
 - 元件包围盒检查依赖 `sch_Primitive.getPrimitivesBBox`；个别图元若没有 BBox，会跳过超界检查。
 - 扩展 `activationEvents` 已包含 onStartupFinished / onProjectOpened / onEditorSchematic / onEditorPcb；如果导入旧版扩展后切到 PCB 掉线，请重新导入新版 zip。
+- 原理图元件移动用 `eda_move_component`（`sch_PrimitiveComponent.modify`）；网络端口/网络旗标/网络标签/文本标签的删除用 `eda_delete_primitive` 的 `netport` / `netflag` / `netlabel` / `text` 类型。
+- `eda_draw_wire` 的 `net` 只对**悬空导线**有效：端点一旦接触引脚，EDA 会按连通性重算网络名（实测 `TESTNET` 并入 `LED_A`）。跨区域同名网络必须用 `eda_place_net_port` 或网络标签。
+- `sch_PrimitiveAttribute.createNetLabel` 在 EDA 3.2.186 上**永不 resolve**：插件按会话缓存探测结论，之后自动降级为纯文本标签（无电气语义，靠 stub 导线连通网络）。批量请用 `eda_place_net_labels`，标签用 `eda_get_net_labels` 枚举、`eda_delete_primitive(kind:"text")` 清理。
+- 网络端口图元不会出现在 `eda_get_components` / BOM / 网表里（应用行为），只能用 `eda_get_net_labels` 审计。
+- 导入 `.epro2` 会原样复制内部 uuid（schematic/page/pcb），可能与源工程冲突：`eda_import_project` 会检查并在 `collisions` 里报告，但无法重新生成。
+- `dmt_Project.copyProject` 与 `createProject` / `deleteProject` 同样在本地工程上无副作用；复制请用 `eda_export_project` + `eda_import_project`。
+- 自动布局/布线默认关闭（`allowAutoLayoutRouting`），`eda_auto_layout` / `eda_auto_route` 需 `force:true` 才会执行。
 - `dmt_Project.createProject` / `deleteProject` 在本机 EDA 3.2.186（登录但半离线）上**无副作用**：前者返回空 uuid（目录路径 / 真 team uuid / 带不带 folderUuid 四种组合都试过），后者始终返回 `false`（工程打开时与切走后各试一次）。**新建工程请改用 `eda_import_project`（导入一个工程文件即建出工程，已实测）**，删除请在应用内完成。
 - 半离线模式下 EDA 把**每个本地工程目录当成一个 "team"**：`eda_list_teams` 返回的 `uuid` 就是目录路径，而工程记录里的 `teamUuid` 是另一种真 uuid。`eda_list_projects` 无过滤时会遍历所有 team 聚合，因此第一次调用会比带 `teamUuid` 时慢一些。
 - `lceda-pro.exe` 直接 `spawn`（含 ShellExecute）会**立刻以退出码 0 退出**：只有交给桌面外壳（`explorer.exe`）才能起来，所以 `eda_launch` 在 Windows 上固定走 explorer + 临时 `.cmd`。

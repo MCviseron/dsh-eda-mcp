@@ -1,0 +1,40 @@
+fix(schematic): batch net labels, honest failures, and the working standard
+
+Fixes every issue from a real 45-net schematic run on EDA 3.2.186.
+No wire-contract change: the extension allow-list already had what was needed,
+so installed extensions need no re-import (still 0.4.0).
+
+Net labels / usability:
+- createNetLabel probe result is cached per session (netLabelSupport); after the
+  first failure placement degrades to text without paying a 4 s timeout each time
+- new eda_place_net_labels([...]): many labels in one call, per-item ok/error,
+  done/failed/total so a long run has progress instead of a timeout
+- eda_get_net_labels now enumerates sch_PrimitiveAttribute.getAll AND
+  sch_PrimitiveText.getAll (the fallback texts) and reports counts
+
+Silent failures and ghost primitives:
+- eda_copy_project surfaces the raw result, wraps errors and explains a false
+- eda_delete_primitive accepts netport/netflag/netlabel (sch_PrimitiveAttribute)
+- new eda_move_component (sch_PrimitiveComponent.modify) keeps designator/value
+
+Round trips and return shapes:
+- eda_get_pins returns pinName/pinNumber in one call (no per-pin raw API)
+- eda_run_drc uses includeVerboseError and returns per-problem entries
+- eda_export_netlist returns a parsed object (format:'text' keeps the string)
+- eda_export_bom decodes the UTF-16LE csv payload
+- eda_open_project / eda_import_project report opened from the observed active
+  project (waits for the switch) and keep openReturned
+- eda_import_project warns about duplicated internal uuids (checkCollisions)
+
+Policy and docs:
+- eda_auto_layout / eda_auto_route are disabled unless force:true and the new
+  allowAutoLayoutRouting setting (env DSH_EDA_ALLOW_AUTO_LAYOUT) allow them
+- new eda_workflow_guide tool + docs/schematic-workflow.md; the system prompt
+  section states the grid/signal-flow rules and that a wire net name is
+  overridden by connectivity (measured: TESTNET merged into LED_A)
+- eda_zoom_to_fit clamps the reported region to the page frame
+- new eda_list_api_methods; eda_api_call explains a refusal
+
+Also fixes a self-inflicted outage: eda_workflow_guide was declared twice and the
+MCP client refused the whole tool list, so the plugin vanished from the session.
+contract-check now fails on duplicate tool declarations.

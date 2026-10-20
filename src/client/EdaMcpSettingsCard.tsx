@@ -11,6 +11,7 @@ export interface EdaMcpSettings {
   toolCallTimeoutMs?: number
   allowRawApi?: boolean
   edaExecutable?: string
+  allowAutoLayoutRouting?: boolean
 }
 
 export interface EdaMcpSettingsCardState {
@@ -449,6 +450,13 @@ export function EdaMcpSettingsCard(props: EdaMcpSettingsCardProps) {
           value={draft.allowRawApi ?? true}
           disabled={disabled}
           onChange={(value) => { clearNotice(); update('allowRawApi', value) }}
+        />
+        <BooleanField
+          label={t('settings.allowAutoLayoutRouting')}
+          hint={t('settings.allowAutoLayoutRoutingHint')}
+          value={draft.allowAutoLayoutRouting ?? false}
+          disabled={disabled}
+          onChange={(value) => { clearNotice(); update('allowAutoLayoutRouting', value) }}
         />
 
         <p style={{ ...hintStyle, margin: '8px 0 0' }}>{t('settings.portLabel')}</p>

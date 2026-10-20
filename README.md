@@ -215,6 +215,13 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the repository layout, the release/ta
 - In semi-offline mode EDA models **each local project directory as a "team"**: the `uuid` reported by `eda_list_teams` is the directory path, while a project record's `teamUuid` is a real uuid. `eda_list_projects` without a filter walks every team, so the first call is slower than one with `teamUuid`.
 - Spawning `lceda-pro.exe` directly (even through ShellExecute) makes it exit with code 0 immediately; only handing the launch to the desktop shell (`explorer.exe`) starts it, so on Windows `eda_launch` always goes through explorer plus a temporary `.cmd`.
 - A project path on the command line is **ignored by the app** (the active document stays HOME), so `eda_launch({ project })` only forwards the argument; the result carries `projectOpenedByArgument: false` and a `projectNote`. Use `eda_open_project` to actually open one.
+- Schematic parts move with `eda_move_component` (`sch_PrimitiveComponent.modify`); net ports, net flags, net labels and text labels are deleted with `eda_delete_primitive` kinds `netport` / `netflag` / `netlabel` / `text`.
+- The `net` argument of `eda_draw_wire` only sticks on a **floating** wire: once an endpoint touches a pin, EDA recomputes the net from connectivity (measured: `TESTNET` merged into `LED_A`). Joining same-named nets across regions requires `eda_place_net_port` or a net label.
+- `sch_PrimitiveAttribute.createNetLabel` never resolves on EDA 3.2.186: the probe result is cached per session and placement degrades to a plain text label (no electrical meaning; the stub wire carries the net). Batch with `eda_place_net_labels`, enumerate with `eda_get_net_labels`, clean up with `eda_delete_primitive(kind:"text")`.
+- Net port primitives do not appear in `eda_get_components` / BOM / netlist (application behaviour); audit them through `eda_get_net_labels`.
+- Importing a `.epro2` copies its internal uuids (schematic/page/pcb), which can collide with the source project: `eda_import_project` reports them in `collisions`, but cannot regenerate them.
+- `dmt_Project.copyProject` is as inert as `createProject` / `deleteProject` for local projects; copy with `eda_export_project` + `eda_import_project` instead.
+- Automatic layout/routing is off by default (`allowAutoLayoutRouting`); `eda_auto_layout` / `eda_auto_route` only run with `force:true`.
 - The extension and bridge wire versions must move **together** (currently 0.4.0): a changed allow-list requires re-importing the zip, otherwise new tools answer `API method not allowed`. `eda_status` reports every connected page's version in `extensionVersions`.
 
 ## Repository

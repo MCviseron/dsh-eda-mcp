@@ -19,7 +19,15 @@ const problems = []
 
 // --- tool table vs handlers ------------------------------------------------
 const declared = new Set()
-for (const match of bridge.matchAll(/\{ name: '([a-z0-9_]+)'/g)) declared.add(match[1])
+// Duplicates are fatal at runtime: the MCP client refuses a server that lists the
+// same tool twice ("server listed tool X more than once — invalid tool list") and the
+// whole plugin then disappears from the session. Catch it here instead.
+const seenNames = new Map()
+for (const match of bridge.matchAll(/\{ name: '([a-z0-9_]+)'/g)) {
+  seenNames.set(match[1], (seenNames.get(match[1]) ?? 0) + 1)
+  declared.add(match[1])
+}
+for (const [name, count] of seenNames) if (count > 1) problems.push('tool declared ' + count + ' times: ' + name)
 
 // Aliases are resolved before the switch, so they need no case of their own.
 const aliases = new Map()
