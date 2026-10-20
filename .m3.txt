@@ -1,0 +1,8 @@
+fix(ci): never fail the registry probe step when npm answers 404
+
+npm view exits 1 for a missing package or version, and a pwsh step inherits the
+last native exit code, so the tag push on v0.6.2 ended red at
+"Is this version already on the registry?" while every real check passed.
+
+Both probes now reset $LASTEXITCODE and the step ends with an explicit exit 0;
+the outcome is reported through step outputs (exists / missing) as intended.
