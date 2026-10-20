@@ -124,7 +124,8 @@
 | run_code 读大 JSON 被截断 | 宿主 read 有单行上限 | 用 node:fs 读盘或分片读 |
 | 覆铜创建失败（无法创建覆铜边框图元） | 该构建对 API 建覆铜敏感（点数/层/位置） | 确认点在板框内且层是铜层；仍失败就手工框选铺铜，design_audit 会把它记为 warn |
 | 按坐标算的越界没被发现 | 图框/原点假设与真实页面不一致 | 用 eda_get_page_info 的真实值 + eda_capture 导 PNG 看实际版面 |
-| dmt_Project.* 报 not allowed | 装的是旧扩展（白名单里其实有 10 个 dmt_Project 方法） | 看 eda_status.extensionVersions，重导对应版本 zip 并重启应用 |
+| dmt_Project.* / 任意方法报 not allowed | 装的是旧扩展；或旧桥接用本地副本误拦 | eda_list_api_methods 看 source:extension 的真实清单；桥接已不再预拦，直接调用让扩展裁决 |
+- 能力边界以**扩展自报**为准：eda_list_api_methods 的 source 为 extension 时是运行中扩展的真实白名单（含 fileCount）；bridge-local-copy 仅表示装的是旧 zip。eda_api_call 不再用桥接本地副本预拦，未知方法直接转发并由扩展裁决。
 
 ## 9b. PCB 设计与工艺规则（真机踩出来的）
 

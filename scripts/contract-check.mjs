@@ -120,6 +120,14 @@ for (const method of called) {
   if (!allowed.has(method)) problems.push('API not in extension allow-list: ' + method)
 }
 
+// The extension own allow-list is the authority: eda_list_api_methods reports it and
+// eda_api_call forwards instead of pre-gating on the bridge copy, which drifted and
+// once rejected methods the extension actually accepted.
+if (!extension.includes('dsh.internal.listApiMethods')) problems.push('extension does not implement dsh.internal.listApiMethods')
+const apiCallStart = bridge.indexOf("case 'eda_api_call'")
+const apiCallBody = apiCallStart < 0 ? '' : bridge.slice(apiCallStart, apiCallStart + 1200)
+if (apiCallBody.includes('ALLOWED_API.has(')) problems.push('eda_api_call still pre-gates on the bridge copy')
+
 console.log('tools declared: ' + declared.size + ' (' + aliases.size + ' aliases), handled: ' + handled.size)
 console.log('allow-list entries: ' + allowed.size + ', internal helpers: ' + internalHandlers.size)
 console.log('API methods called by the bridge: ' + called.size + ', input schemas: ' + schemaCount)

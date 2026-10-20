@@ -393,6 +393,17 @@ function dshEdaMcpStatus() {
       return { result: impResult === undefined ? null : toJsonable(impResult) };
     }
     // Internal helper: build an IPCB_Polygon from a raw source array and create
+    // Internal helper: report THIS extension's own allow-list. The bridge keeps a
+    // copy for docs/offline hints, but it drifts — and a bridge that is stricter
+    // than the extension silently rejects methods that actually work. This is the
+    // authority: what the running extension will accept right now.
+    if (message.method === 'dsh.internal.listApiMethods') {
+      return {
+        version: VERSION,
+        allowed: Array.from(ALLOWED_API).sort(),
+        files: Array.from(FILE_METHODS).sort(),
+      };
+    }
     // a PCB region (used for the board outline).
     if (message.method === 'dsh.internal.pcbCreateRegion') {
       var regionArgs = message.args || [];

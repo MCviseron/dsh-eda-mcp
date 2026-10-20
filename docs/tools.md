@@ -54,7 +54,7 @@ Design limits enforced by these tools (track widths, via sizes, net naming) are 
 | `eda_get_net_labels` | List every label-like primitive on the active schematic page: attribute primitives (netlabel/netport/netflag) PLUS plain texts left by the createNetLabel fallback, so they can be audited and deleted. Reports kind/primitiveId/net per entry. | `parentPrimitiveId?: string` |
 | `eda_capture` | Render the active document to a PNG (dmt_EditorControl.getCurrentRenderedAreaImage) and write it to outPath or return a data URL. Use it to LOOK at the sheet/board instead of trusting coordinate math; read the file back with the image reader. | `outPath?: string, inline?: boolean` |
 | `eda_workflow_guide` | Return the schematic working standard: grid-aligned manual placement, signal flow, when net labels/ports are required (a wire net name is overridden by connectivity), net-label fallback behaviour, batch placement and the verification order. Read it before laying out a sheet. | `` |
-| `eda_list_api_methods` | List every API method the connected extension accepts (its allow-list). Call it when eda_api_call answers "API method not allowed". | `` |
+| `eda_list_api_methods` | Ask the CONNECTED EXTENSION for the API methods it accepts right now (dsh.internal.listApiMethods) and report source/version/counts. Falls back to the bridge copy with stale:true only when the extension is an older zip. Use refresh:true to re-query. | `refresh?: boolean` |
 
 ## Schematic: place & draw
 

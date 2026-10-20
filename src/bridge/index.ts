@@ -18,7 +18,7 @@ import {
 } from './design-rules.ts'
 import { WORKFLOW_GUIDE, WORKFLOW_SUMMARY } from './workflow-guide.ts'
 
-const VERSION = '0.4.3'
+const VERSION = '0.4.4'
 const WS_PORT = Number(process.env.DSH_EDA_MCP_WS_PORT ?? 39009)
 const WS_HOST = '127.0.0.1'
 const ALLOW_RAW_API = (process.env.DSH_EDA_MCP_ALLOW_RAW_API ?? '1') !== '0'
@@ -316,7 +316,7 @@ const TOOLS = [
   { name: 'pcb_draw_mounting_hole', description: 'Place a NON-plated mounting hole or a slot (pcb_PrimitivePad with metallization:false). shape "round" is a drill-sized hole, shape "slot" an oval cut-out. Use this for mounting holes and connector slots instead of hacking the board outline.', inputSchema: objectSchema({ x: { type: 'number' }, y: { type: 'number' }, diameter: { type: 'number' }, shape: { type: 'string', enum: ['round', 'slot'] }, slotLength: { type: 'number' }, rotation: { type: 'number' }, plated: { type: 'boolean' }, layer: { type: 'string' } }, ['x', 'y', 'diameter']) },
   { name: 'eda_capture', description: 'Render the active document to a PNG (dmt_EditorControl.getCurrentRenderedAreaImage) and write it to outPath or return a data URL. Use it to LOOK at the sheet/board instead of trusting coordinate math; read the file back with the image reader.', inputSchema: objectSchema({ outPath: { type: 'string' }, inline: { type: 'boolean' } }) },
   { name: 'eda_workflow_guide', description: 'Return the schematic working standard: grid-aligned manual placement, signal flow, when net labels/ports are required (a wire net name is overridden by connectivity), net-label fallback behaviour, batch placement and the verification order. Read it before laying out a sheet.', inputSchema: objectSchema({}) },
-  { name: 'eda_list_api_methods', description: 'List every API method the connected extension accepts (its allow-list). Call it when eda_api_call answers "API method not allowed".', inputSchema: objectSchema({}) },
+  { name: 'eda_list_api_methods', description: 'Ask the CONNECTED EXTENSION for the API methods it accepts right now (dsh.internal.listApiMethods) and report source/version/counts. Falls back to the bridge copy with stale:true only when the extension is an older zip. Use refresh:true to re-query.', inputSchema: objectSchema({ refresh: { type: 'boolean' } }) },
   { name: 'eda_delete_primitive', description: 'Delete a schematic primitive by kind and primitive id. Net ports, net flags and net labels are attribute primitives and need kind "netport"/"netflag"/"netlabel"; the text fallback labels are kind "text".', inputSchema: objectSchema({ kind: { type: 'string', enum: ['component', 'wire', 'rectangle', 'circle', 'arc', 'polygon', 'text', 'netport', 'netflag', 'netlabel'] }, primitiveId: { type: 'string' } }, ['kind', 'primitiveId']) },
   { name: 'eda_create_board', description: 'Create a board linking a schematic and a PCB (dmt_Board.createBoard).', inputSchema: objectSchema({ schematicUuid: { type: 'string' }, pcbUuid: { type: 'string' } }) },
   { name: 'eda_api_call', description: 'Call an allow-listed JLCEDA Pro extension API method directly.', inputSchema: objectSchema({ method: { type: 'string' }, args: { type: 'array' } }, ['method', 'args']) },
@@ -507,6 +507,39 @@ async function pcbComponentIds(timeoutMs) {
   return Array.isArray(raw) ? raw.map(String) : []
 }
 let nextCallId = 1
+
+/**
+ * The extension's own allow-list, cached per connected extension version.
+ *
+ * The bridge holds a copy (ALLOWED_API) for documentation and offline hints, but
+ * that copy drifts: gating eda_api_call on it rejected methods the extension
+ * actually accepts (dmt_Project.* among them) and eda_list_api_methods then
+ * reported the wrong capability boundary. Ask the extension instead.
+ */
+let extensionApiCache = null
+
+async function extensionApiMethods(timeoutMs, refresh = false) {
+  if (!refresh && extensionApiCache !== null) return extensionApiCache
+  try {
+    const raw = await callExtension('dsh.internal.listApiMethods', [], Math.min(timeoutMs, 5000))
+    const record = asRecord(raw)
+    const allowed = Array.isArray(record.allowed) ? record.allowed.map(String) : []
+    const files = Array.isArray(record.files) ? record.files.map(String) : []
+    if (allowed.length === 0 && files.length === 0) return undefined
+    extensionApiCache = {
+      version: typeof record.version === 'string' ? record.version : null,
+      allowed,
+      files,
+      all: [...allowed, ...files].sort(),
+      allowedSet: new Set(allowed),
+      fileSet: new Set(files),
+    }
+    return extensionApiCache
+  } catch {
+    // Older extension without the helper: fall back to the local copy, flagged.
+    return undefined
+  }
+}
 
 /** A socket that has been silent this long is treated as dead even if it never closed. */
 const CLIENT_STALE_MS = 60000
@@ -2186,8 +2219,29 @@ async function executeTool(name, rawArgs, timeoutMs) {
         mirror: args.mirror === undefined ? undefined : Boolean(args.mirror),
       }], timeoutMs)
 
-    case 'eda_list_api_methods':
-      return { count: ALLOWED_API.size, methods: [...ALLOWED_API].sort() }
+    case 'eda_list_api_methods': {
+      // Ask the running extension first: its answer is the real capability boundary.
+      const live = await extensionApiMethods(timeoutMs, args.refresh === true)
+      if (live !== undefined) {
+        return {
+          source: 'extension',
+          extensionVersion: live.version,
+          count: live.all.length,
+          allowedCount: live.allowed.length,
+          fileCount: live.files.length,
+          fileMethods: live.files,
+          methods: live.all,
+          note: 'This is the list the connected extension enforces (dsh.internal.listApiMethods). sendable:true means eda_api_call will forward it.',
+        }
+      }
+      return {
+        source: 'bridge-local-copy',
+        stale: true,
+        count: ALLOWED_API.size,
+        methods: [...ALLOWED_API].sort(),
+        note: 'The connected extension does not expose its list (older zip), so this is the bridge copy — it may be narrower than what the extension accepts. eda_api_call forwards unknown methods and reports the extension verdict, so try the call instead of trusting this list.',
+      }
+    }
 
     case 'pcb_draw_text': {
       const text = String(args.text ?? '')
@@ -2261,12 +2315,21 @@ async function executeTool(name, rawArgs, timeoutMs) {
     case 'eda_api_call': {
       if (!ALLOW_RAW_API) throw new Error('eda_api_call is disabled by settings (allowRawApi=false)')
       const method = String(args.method ?? '')
-      if (!ALLOWED_API.has(method)) {
-        throw new Error('API method not allowed: ' + method + '. The extension only accepts its allow-list (' +
-          ALLOWED_API.size + ' methods): call eda_list_api_methods to get it. Common schematic helpers such as ' +
-          'sch_PrimitiveComponent.getAllPinsByPrimitiveId and sch_PrimitivePin.get are already wrapped by eda_get_pins.')
+      // No local gate: the extension enforces its own allow-list, and gating here
+      // with a drifted copy rejected methods that actually worked. Forward and
+      // translate the extension's refusal into something actionable.
+      try {
+        return await callExtension(method, Array.isArray(args.args) ? args.args : [], timeoutMs)
+      } catch (failure) {
+        const message = failure instanceof Error ? failure.message : String(failure)
+        if (!/not allowed/i.test(message)) throw failure
+        const live = await extensionApiMethods(timeoutMs, true)
+        const hint = live === undefined
+          ? 'The connected extension rejected it and does not expose its list (older zip); eda_list_api_methods then shows the bridge copy, which may be narrower than reality.'
+          : 'The extension enforces ' + live.all.length + ' methods right now (eda_list_api_methods source:"extension").'
+        throw new Error('API method not allowed: ' + method + '. ' + hint +
+          ' Wrapped helpers usually exist: eda_get_pins (pins), eda_place_net_labels (labels), eda_pcb_* (PCB primitives).')
       }
-      return await callExtension(method, Array.isArray(args.args) ? args.args : [], timeoutMs)
     }
 
     case 'pcb_get_components': {

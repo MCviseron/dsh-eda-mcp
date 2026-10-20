@@ -1,6 +1,25 @@
 # Changelog
 
 ## 未发布（unreleased）
+### 修掉「能力边界报错」：白名单以**扩展自报**为准（线协议 0.4.3 → **0.4.4**）
+
+**问题（用户实测指出，成立）**：桥接自己维护了一份 `ALLOWED_API` 副本，却拿它当权威 ——
+
+1. `eda_list_api_methods` 返回的是**桥接本地表**，却宣称是"扩展接受的白名单"，于是调用方把错误的清单当成能力边界（本次就被误导）；
+2. `eda_api_call` 也用这份本地副本做前置拦截，**桥接比扩展更严**，凡是"扩展接受但桥接表没收录"的方法（如 `dmt_Project.*`）一律被误拒；
+3. 报错文案还让调用方"去调 `eda_list_api_methods` 看清单"，而那份清单正是错的 —— 形成闭环误导。
+
+**修法：把权威交给运行中的扩展。**
+
+- 扩展新增内部助手 `dsh.internal.listApiMethods`，返回 `{ version, allowed, files }`（`ALLOWED_API` ∪ `FILE_METHODS` 的真实内容）；
+- `eda_list_api_methods` 先问扩展：返回 `source:"extension"` + `extensionVersion` + `count/allowedCount/fileCount/fileMethods`；只有扩展是旧 zip（没有该助手）时，才回退本地副本并明确标 `source:"bridge-local-copy", stale:true`，同时说明它可能比现实更窄；
+- **`eda_api_call` 删除本地前置拦截**：直接转发给扩展，由扩展裁决；仅当扩展回 `not allowed` 时才把错误翻译成可操作信息（并顺带刷新一次扩展清单）。这样桥接**永远不会比扩展更严**；
+- 清单按连接缓存（`extensionApiCache`），`refresh:true` 强制重查。
+
+**防复发（contract-check 新增两条断言）**：扩展必须实现 `dsh.internal.listApiMethods`；`eda_api_call` 体内不得再出现 `ALLOWED_API.has(` 形式的前置拦截。
+
+手册同步：故障表把"dmt_Project.* 报 not allowed"改为"旧扩展 或 旧桥接本地副本误拦"，并新增一条规则 —— **能力边界以 `eda_list_api_methods` 的 `source:extension` 为准**，`bridge-local-copy` 只说明装了旧 zip。
+
 
 ### 依据「STM32 最小系统板」真机会话反馈的一批修复（线协议 0.4.2 → **0.4.3**）
 
