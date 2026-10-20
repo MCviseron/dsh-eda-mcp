@@ -72,6 +72,10 @@
 | `eda_import_project` | `sys_FileManager.importProjectByProjectFile` | **导入本地**工程文件（`.eprj2/.epro/…`）到工作区；`open:true` 时导入后立即打开。这就是「打开本地工程文件」的可行路径（应用本身忽略命令行参数） |
 
 扩展新增两个内部助手 `dsh.internal.exportProjectFile` / `importProjectFile`（File ↔ base64 只能在渲染进程内完成），白名单增加 `dmt_EditorControl.closeDocument` 与 `dmt_Project.*`；**线协议版本对 0.3.5 → 0.3.6**，用户需重新导入 zip，否则新工具会报 `API method not allowed`。
+
+`eda_close` 真机验证（本机）：`processesBefore: 5 → processesAfter: 0`，但 **`forced: true`** —— Windows 上 `taskkill /IM lceda-pro.exe /T`（不带 `/F`）对本机这个 Electron 应用**没能关掉**（8 s 后仍是 5 个进程），最终由 `/F` 强制结束。
+
+**因此：`eda_close` 之前请先 `eda_save_document` / `eda_pcb_save_document`，否则未保存的改动会丢**（返回值里的 `forced` 会告诉你是否走了强制路径）。
 ## 0.6.2
 
 > **已发布到 npm**（`dsh-eda-mcp@0.6.2`，首个版本）。下面 0.6.1 的内容从未发布过，同批一起带上。
