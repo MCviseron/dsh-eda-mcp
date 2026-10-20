@@ -142,3 +142,19 @@ for (const name of ['@deepseek-ai/dsh-client-ui-slots', '@deepseek-ai/dsh-client
 
 console.log(failures === 0 ? '\nALL PASS' : `\n${failures} FAILED`)
 process.exit(failures === 0 ? 0 : 1)
+
+// --- CI workflows must reference artefacts the build actually produces -------
+// Two released pipelines broke on this exact class of drift: the bundle-path guard
+// flagged our own documentation string, and check.yml uploaded an unversioned zip the
+// build had stopped producing. Both are asserted here instead of being rediscovered.
+{
+  const check = readFileSync(join(root, '.github/workflows/check.yml'), 'utf8')
+  const publish = readFileSync(join(root, '.github/workflows/publish.yml'), 'utf8')
+  report('check.yml uploads the versioned zip glob', check.includes('dsh-eda-bridge-extension-*.zip'))
+  report('check.yml runs the shared bundle guard', check.includes('pnpm guard:bundle'))
+  report('publish.yml runs the shared bundle guard', publish.includes('pnpm guard:bundle'))
+  report('no workflow re-implements the path guard inline', !/Select-String[\s\S]{0,200}node_modules/.test(check + publish))
+  const pkgJson = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
+  report('guard:bundle is wired into the scripts', typeof pkgJson.scripts?.['guard:bundle'] === 'string')
+  report('pnpm check runs the bundle guard', String(pkgJson.scripts?.check ?? '').includes('guard:bundle'))
+}

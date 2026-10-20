@@ -1,0 +1,12 @@
+test(seams): assert the CI workflows reference what the build produces
+
+The tag run of publish.yml failed on the inline 'node_modules/' guard, which flagged
+our own skill text (the zip location is documentation, not a leaked build path). That
+fix landed on main, but re-running a failed job replays the tagged commit, so the
+failure is reproducible by design until something re-validates the workflow text.
+
+Six assertions now cover the whole class: check.yml globs the versioned zip and runs
+the shared guard, publish.yml runs the shared guard, no workflow re-implements the
+path guard inline, and both guard:bundle and the pnpm check chain are wired.
+
+Gate: typecheck 0, 6 suites ALL PASS, contract-check PASS, build 0, guard:bundle PASS.
