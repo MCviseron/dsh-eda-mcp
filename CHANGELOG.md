@@ -22,6 +22,12 @@
 - 现象：升版本后目录里同时存在新旧两个扩展 zip，而 `package.json files` 用的是 `dsh-eda-bridge-extension-*.zip` 通配 → 两个都会进 npm 包。
 - 修复：构建前**清掉所有** `dsh-eda-bridge-extension*.zip`；`npm pack --dry-run` 现在只有 1 个 zip（40 files）。
 
+
+### 批量标签改用受控并发（实测 2.2 倍）
+
+- `eda_place_net_labels` 原来是串行 for 循环：真机实测**每个标签约 2.1 s**（应用按图元落库），133 个仍需 ~4.6 分钟。
+- 改为 `mapLimit` 受控并发（默认 4，可用 `concurrency` 调 1–8），结果仍按调用方顺序返回。
+- 真机复测：**8 个标签 7.5 s = 938 ms/个**（串行 2.1 s/个），清理后计数 19 → 11。
 ### 真机验证结论（EDA 3.2.186 + 扩展 0.4.0）
 
 | 项 | 结果 |

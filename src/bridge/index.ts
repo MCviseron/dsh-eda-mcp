@@ -305,7 +305,7 @@ const TOOLS = [
   { name: 'eda_open_document', description: 'Open/activate a document tab by uuid (dmt_EditorControl.openDocument). Works for a schematic page or a PCB, so tab-dependent APIs can run.', inputSchema: objectSchema({ documentUuid: { type: 'string' }, splitScreenId: { type: 'string' } }, ['documentUuid']) },
   { name: 'eda_get_net_labels', description: 'List every label-like primitive on the active schematic page: attribute primitives (netlabel/netport/netflag) PLUS plain texts left by the createNetLabel fallback, so they can be audited and deleted. Reports kind/primitiveId/net per entry.', inputSchema: objectSchema({ parentPrimitiveId: { type: 'string' } }) },
   { name: 'eda_place_net_label', description: 'Place a net label at x/y. The real API (sch_PrimitiveAttribute.createNetLabel) is probed once per session; when the build never answers, a plain TEXT label is placed instead, which carries no electrical meaning and must be paired with a stub wire. Pass probe:true to re-check.', inputSchema: objectSchema({ x: { type: 'number' }, y: { type: 'number' }, net: { type: 'string' }, fontSize: { type: 'number' }, rotation: { type: 'integer', enum: [0, 90, 180, 270] } }, ['x', 'y', 'net']) },
-  { name: 'eda_place_net_labels', description: 'Place many net labels in ONE call (per-pin or by coordinate) and report done/failed per item: a 133-label schematic used to exceed the caller timeout with no progress. items: [{ pinPrimitiveId, net, stubLength?, offsetX?, offsetY? }] or [{ x, y, net, fontSize? }].', inputSchema: objectSchema({ items: { type: 'array', items: { type: 'object', additionalProperties: true } }, probe: { type: 'boolean' } }, ['items']) },
+  { name: 'eda_place_net_labels', description: 'Place many net labels in ONE call (per-pin or by coordinate) and report done/failed per item: a 133-label schematic used to exceed the caller timeout with no progress. items: [{ pinPrimitiveId, net, stubLength?, offsetX?, offsetY? }] or [{ x, y, net, fontSize? }].', inputSchema: objectSchema({ items: { type: 'array', items: { type: 'object', additionalProperties: true } }, probe: { type: 'boolean' }, concurrency: { type: 'integer', minimum: 1, maximum: 8 } }, ['items']) },
   { name: 'eda_run_drc', description: 'Run schematic DRC with includeVerboseError. On EDA 3.2.186 the app still returns AGGREGATED entries ({type:"warn",count:N}) with no primitiveId/coordinates, so entries are reported as-is and raw keeps the untouched payload; expect counts plus a hint until the app exposes details.', inputSchema: objectSchema({ strict: { type: 'boolean' } }) },
   { name: 'eda_auto_layout', description: 'Run schematic auto-layout (sch_Document.autoLayout). DISABLED by default: automated layout is not used unless the user asks for it. Pass force:true only then.', inputSchema: objectSchema({ uuids: { type: 'array', items: { type: 'string' } }, force: { type: 'boolean' } }) },
   { name: 'eda_auto_route', description: 'Run schematic auto-routing (sch_Document.autoRouting). DISABLED by default: route by hand unless the user explicitly asks. Pass force:true only then.', inputSchema: objectSchema({ uuids: { type: 'array', items: { type: 'string' } }, force: { type: 'boolean' } }) },
@@ -1779,18 +1779,21 @@ async function executeTool(name, rawArgs, timeoutMs) {
       // caller's timeout with no way to learn what had already been placed.
       const items = Array.isArray(args.items) ? args.items.map(asRecord) : []
       if (items.length === 0) throw new Error('eda_place_net_labels requires items: [{ pinPrimitiveId, net }] or [{ x, y, net }]')
-      const results = []
-      for (const item of items) {
+      // Measured on 3.2.186: one label costs ~2 s (the app writes per primitive), so a
+      // sequential 133-label run still took minutes. Items are independent, so run them
+      // with bounded concurrency; results keep the caller's order.
+      const concurrency = Number.isFinite(Number(args.concurrency)) ? Math.max(1, Math.min(8, Number(args.concurrency))) : 4
+      const results = await mapLimit(items, concurrency, async (item) => {
         const net = item.net === undefined ? '' : String(item.net)
         try {
           const placed = item.pinPrimitiveId !== undefined
             ? await placeAtPin('eda_place_net_label_at_pin', { ...item, net }, timeoutMs)
             : await placeNetLabel(net, Number(item.x), Number(item.y), item.fontSize, timeoutMs, { probe: args.probe === true })
-          results.push({ ok: true, net, ...placed })
+          return { ok: true, net, ...placed }
         } catch (error) {
-          results.push({ ok: false, net, error: error instanceof Error ? error.message : String(error) })
+          return { ok: false, net, error: error instanceof Error ? error.message : String(error) }
         }
-      }
+      })
       const done = results.filter(entry => entry.ok).length
       return {
         total: items.length,
