@@ -1903,15 +1903,23 @@ async function executeTool(name, rawArgs, timeoutMs) {
         const info = asRecord(await callExtension('dmt_SelectControl.getCurrentDocumentInfo', [], Math.min(timeoutMs, 4000)))
         activeUuid = String(pickValue(info, 'uuid', 'Uuid') ?? '')
       } catch { /* ignore */ }
-      const tabOpened = tabIds.length > 1 || (activeUuid !== '' && activeUuid !== '0')
+      // "opened" must mean "this document is now the active one": right after an app
+      // restart the call answers success while the Start Page (tab_page1) stays active,
+      // and a length-based guess reported opened:true for it.
+      const activeIsTarget = activeUuid === documentUuid
+      const tabOpened = activeIsTarget || tabIds.some(tab => tab.startsWith(documentUuid + '@'))
       return {
         ...(raw !== null && typeof raw === 'object' ? raw : { result: raw ?? null }),
         opened: tabOpened,
+        activated: activeIsTarget,
         activeDocumentUuid: activeUuid || null,
         tabIds,
         hint: tabOpened
           ? null
-          : 'The app accepted openDocument but created no editor tab (only the Start Page is open). This build does not open a document programmatically from the HOME screen: open the schematic/PCB page once in the app (double-click the project), then retry. Do not assume the page is active.',
+          : 'The app accepted openDocument but the document is not active (activeDocumentUuid=' +
+            (activeUuid || 'unknown') + ', tabs: ' + (tabIds.join(', ') || 'none') +
+            '). After an app restart the editor sits on the Start Page: open the project first'
+            + ' (eda_open_project), then open the document. This build cannot open a document from the HOME screen programmatically, so never assume a page is active without checking activeDocumentUuid.',
       }
     }
 

@@ -117,6 +117,7 @@ export const SKILL_PLAYBOOK_LINES: readonly string[] = [
   "| connectedClients=0 / 报未连接 | EDA 没开、扩展没导入或没点「连接」、端口被占 | 先 eda_status 看 hint；必要时 eda_launch 起应用并等扩展连上 |",
   "| extensionVersions 与 bridgeVersion 不一致 | 装的是旧扩展 | 重新导入对应版本 zip（文件名带版本号）并重启应用 |",
   "| API method not allowed | 该 API 不在扩展白名单 | 调 eda_list_api_methods 看清单；优先用包装好的工具 |",
+  "| open_document 返回 opened:false / activated:false | 应用停在 Start Page（tab_page1），该构建无法从 HOME 程序化打开文档 | 先 eda_open_project 打开工程，再 eda_open_document；用 activeDocumentUuid 确认，别假设已激活 |",
   "| 调用 60s 超时 | 页面切走留下僵尸 socket，或单次改太多 | 只读调用会自动换页面重试一次；把批量拆到 ≤20/批 |",
   "| 读图返回空 / null | 活动文档不是原理图页 | eda_get_active_document → eda_open_document 切页 |",
   "| createNetLabel 无响应 | 3.2.186 该 API 不 resolve | 自动降级文本标签 + stub 导线；批量用 eda_place_net_labels |",

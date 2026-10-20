@@ -55,6 +55,7 @@ const required = [
   '重启 DSH',
   '重新导入',
   '/api/dsh-eda-mcp/diagnostics',
+  'activated:false',
   '只递增最小位',
 ]
 for (const token of required) {

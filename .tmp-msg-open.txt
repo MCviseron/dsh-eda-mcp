@@ -1,0 +1,19 @@
+fix(bridge): opened must mean the requested document actually became active
+
+Importing extension 0.4.2 restarted the app, which put the editor back on the Start
+Page (tab_page1, documentType -1). open_document then answered opened:true while
+activeDocumentUuid stayed tab_page1, because the check guessed from the tab count and
+from 'activeUuid !== 0'. That is the same lie the earlier fix was meant to remove, one
+level down.
+
+opened now requires activeDocumentUuid === documentUuid (or a tab id starting with the
+document uuid); a new 'activated' field reports the strict answer and the hint names
+the Start Page case.
+
+Measured on 3.2.186:
+- real PCB uuid, already active -> opened true, activated true, hint null
+- bogus uuid                    -> opened false, activated false, hint explains
+
+Also confirmed on extension 0.4.2: pcb_ManufactureData.getGerberFile exports 1,335,515
+bytes in 8.0 s (the FILE_METHODS gate fix holds) and the BOM still decodes as utf-16le.
+The skill fault table gains the Start Page row.
