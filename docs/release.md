@@ -30,7 +30,7 @@ npm pack --dry-run                  # 看 tarball 内容
 ```
 
 `npm pack --dry-run` 里必须能同时看到 **`lib/index.js`、`lib/client.js`、`lib/bridge.mjs`、
-`dsh-eda-bridge-extension.zip`、`cordis.patch.yml`、`docs/`**。`lib/` 与 zip 是构建产物（被 gitignore），
+`dsh-eda-bridge-extension-<线协议版本>.zip`、`cordis.patch.yml`、`docs/`**。`lib/` 与 zip 是构建产物（被 gitignore），
 由 `prepare` 脚本在打包时生成 —— 所以**打包机必须是 Windows**（zip 用 PowerShell `Compress-Archive`）。
 
 ## 2. 首次手动发布（必须手动，顺序不能颠倒）

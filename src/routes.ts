@@ -1,4 +1,5 @@
 import { createReadStream } from 'node:fs'
+import { basename } from 'node:path'
 import type { ServerResponse } from 'node:http'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import { SettingsConflictError, type SettingsPathOp } from '@deepseek-ai/dsh-settings'
@@ -186,7 +187,8 @@ export function makeEdaMcpRoutes(deps: EdaMcpRouteDeps): WebRoute[] {
       if (!isLoopbackRequest(req)) return json(res, 403, { ok: false, error: 'forbidden' })
       res.writeHead(200, {
         'content-type': 'application/zip',
-        'content-disposition': 'attachment; filename="dsh-eda-bridge-extension.zip"',
+        // Keep the versioned file name the browser saves it as.
+        'content-disposition': 'attachment; filename="' + basename(deps.extensionZipPath) + '"',
         'cache-control': 'no-store',
       })
       const stream = createReadStream(deps.extensionZipPath)

@@ -16,7 +16,7 @@ DSH agent
   └─ mcp__jlceda__eda_* tools
        └─ @deepseek-ai/dsh-mcp-client (stdio)
             └─ lib/bridge.mjs  (local MCP + WebSocket server, 127.0.0.1:39009)
-                 └─ JLCEDA Pro extension  dsh-eda-bridge-extension.zip
+                 └─ JLCEDA Pro extension  dsh-eda-bridge-extension-<version>.zip
                       └─ official EasyEDA Pro extension API (eda.sch_*)
 ```
 
@@ -36,9 +36,9 @@ pnpm add dsh-eda-mcp            # or use the plugin manager in the Web GUI
 # restart DSH
 ```
 
-The published package already contains `lib/` and `dsh-eda-bridge-extension.zip`, so no build
+The published package already contains `lib/` and `dsh-eda-bridge-extension-<version>.zip`, so no build
 toolchain is needed. The extension still has to be imported into JLCEDA Pro by hand — the zip
-sits at `node_modules/dsh-eda-mcp/dsh-eda-bridge-extension.zip` (or download it from the
+sits at `node_modules/dsh-eda-mcp/dsh-eda-bridge-extension-<version>.zip` (or download it from the
 settings card).
 
 ### 1. Install into the DSH web profile
@@ -71,10 +71,10 @@ The plugin now resolves a real Node executable (`src/node-runtime.ts`), in order
 
 ### 2. Import the JLCEDA Pro bridge extension
 
-Build produces `dsh-eda-bridge-extension-<version>.zip` (plus a `dsh-eda-bridge-extension.zip` alias with identical content; **hand out the versioned file** so stale copies are obvious). In JLCEDA Pro:
+Build produces `dsh-eda-bridge-extension-<version>.zip` only — a second copy under the stable name only made it unclear which build you were looking at. In JLCEDA Pro:
 
 1. Open **扩展 → 导入** (Extensions → Import).
-2. Select `dsh-eda-bridge-extension.zip`.
+2. Select `dsh-eda-bridge-extension-<version>.zip`.
 3. In the extension list find **DSH EDA MCP Bridge**.
 4. Enable it and, importantly, enable **允许外部交互 / Allow external interactions**.
 
@@ -188,7 +188,7 @@ Build outputs:
 - `lib/index.js` — DSH host plugin.
 - `lib/client.js` — DSH Web GUI settings card.
 - `lib/bridge.mjs` — standalone MCP/WebSocket bridge child.
-- `dsh-eda-bridge-extension.zip` — JLCEDA Pro extension.
+- `dsh-eda-bridge-extension-<version>.zip` — JLCEDA Pro extension (the version is the wire contract).
 
 `lib/` and the zip are build outputs and are git-ignored; the host loads the packaged `lib/index.js`, so a change under `src/` needs `pnpm build` plus a Host restart (a plugin reload does not re-import a cached ESM module).
 

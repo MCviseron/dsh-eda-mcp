@@ -124,19 +124,18 @@ if (!bridgeSource.includes(versionPlaceholder)) {
 }
 await writeFile(stagedBridge, bridgeSource.split(versionPlaceholder).join(extensionVersion), 'utf8')
 
-// The versioned file is the one to hand out (it tells copies apart); the stable
-// name stays as an alias for scripts, docs and the settings-card download.
+// One artefact, versioned name: two copies with identical bytes only confuse
+// whoever has to pick one. Everything that needs the file resolves it by version.
 const zipVersioned = 'dsh-eda-bridge-extension-' + extensionVersion + '.zip'
-const zipStable = 'dsh-eda-bridge-extension.zip'
-for (const target of [zipVersioned, zipStable]) await rm(target, { force: true })
+for (const stale of ['dsh-eda-bridge-extension.zip', zipVersioned]) await rm(stale, { force: true })
 execFileSync('powershell', [
   '-NoProfile',
   '-Command',
-  `Compress-Archive -Path '${join(stage, '*')}' -DestinationPath '${join(process.cwd(), zipVersioned)}' -Force; Copy-Item -LiteralPath '${join(process.cwd(), zipVersioned)}' -Destination '${join(process.cwd(), zipStable)}' -Force`,
+  `Compress-Archive -Path '${join(stage, '*')}' -DestinationPath '${join(process.cwd(), zipVersioned)}' -Force`,
 ], { stdio: 'inherit' })
 await rm(stage, { recursive: true, force: true })
 
-console.log('built lib/index.js, lib/client.js, lib/bridge.mjs, ' + zipVersioned + ' (and the ' + zipStable + ' alias)')
+console.log('built lib/index.js, lib/client.js, lib/bridge.mjs, ' + zipVersioned)
 
 // Reproducibility: drop the build-machine-specific module comments from every
 // bundle (see stripBuildComments) so two machines produce identical bytes.

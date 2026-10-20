@@ -4,7 +4,7 @@
  *
  * Connects to the local dsh-eda-mcp bridge process over WebSocket and executes
  * a strict allow-list of official EasyEDA Pro extension APIs. Import through:
- *   Extensions → Import → select dsh-eda-bridge-extension.zip
+ *   Extensions → Import → select dsh-eda-bridge-extension-<version>.zip
  *   then enable "Allow interactive with external" for this extension.
  */
 var DSH_EDA_MCP = {

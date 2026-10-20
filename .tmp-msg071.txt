@@ -1,0 +1,18 @@
+chore(release): v0.7.1 — ship only the versioned extension zip
+
+0.7.0 produced both dsh-eda-bridge-extension-0.4.0.zip and an identical-bytes
+alias under the stable name. Two copies of the same build only make it unclear
+which one is current, so the alias is gone and every reference resolves the
+versioned file:
+
+- src/index.ts reads the version from jlc-extension/extension.json and builds the
+  file name (plain-name fallback kept for older layouts)
+- src/routes.ts sends the real basename in content-disposition, so a downloaded
+  copy carries the version
+- the settings-card link no longer pins a download name
+- bridge hints, README (zh/en), CONTRIBUTING, docs/release.md and the extension
+  header all name dsh-eda-bridge-extension-<version>.zip
+- package.json files keeps only dsh-eda-bridge-extension-*.zip
+
+npm pack dry-run: 35 files, exactly one zip (dsh-eda-bridge-extension-0.4.0.zip).
+Wire contract stays 0.4.0 — installed extensions need no re-import.

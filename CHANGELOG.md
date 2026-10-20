@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.7.1 — 2026-10-20
+
+构建产物修正：**扩展 zip 只保留带版本号的那一个**。
+
+- 0.7.0 里为了不打破旧引用，同时产出了 `dsh-eda-bridge-extension-0.4.0.zip` 和同内容的 `dsh-eda-bridge-extension.zip`（SHA256 完全一致）。两个同内容文件摆在一起只会让人分不清哪份是当前版本，属于多余的冗余，删掉。
+- 现在只生成 `dsh-eda-bridge-extension-<线协议版本>.zip`。所有引用改为**按版本解析**：
+  - `src/index.ts`：从 `jlc-extension/extension.json` 读版本号拼出文件名（找不到时回退旧的固定名，兼容旧布局）；
+  - `src/routes.ts`：下载响应头用实际文件名的 `basename`，浏览器另存下来自带版本号；
+  - 设置卡片的下载链接去掉固定的 `download` 属性，改由响应头决定文件名；
+  - 桥接里所有提示语改成 `dsh-eda-bridge-extension-' + VERSION + '.zip`；
+  - README（中/英）、CONTRIBUTING、`docs/release.md`、扩展头部注释同步。
+- `package.json files` 去掉固定名条目，只保留 `dsh-eda-bridge-extension-*.zip`。
+
+线协议仍是 **0.4.0**，扩展内容未变——已导入 0.4.0 的机器**无需重新导入**。
+
 ## 0.7.0 — 2026-10-20
 
 主题：把「操作嘉立创EDA」从**画图**扩展到**应用与工程**层面，并把这一路真机联调暴露的 bug 全部修掉。

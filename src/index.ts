@@ -5,6 +5,7 @@ import type {} from '@deepseek-ai/dsh-settings'
 import * as mcpClient from '@deepseek-ai/dsh-mcp-client'
 import z from '@deepseek-ai/schemastery'
 import { fileURLToPath } from 'node:url'
+import { existsSync, readFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { EDA_MCP_GUIDANCE, SECTION_ORDER } from './guidance.ts'
 import { makeEdaMcpRoutes, makeEdaMcpSettingsRoutes, type SettingsBridge } from './routes.ts'
@@ -141,7 +142,27 @@ function installSettingsSection<T>(ctx: Context, scoped: Context, ns: string, sc
 export const inject = ['webServer', 'systemPrompt']
 
 const BRIDGE_URL = new URL('../lib/bridge.mjs', import.meta.url)
-const EXTENSION_ZIP_URL = new URL('../dsh-eda-bridge-extension.zip', import.meta.url)
+
+/**
+ * The extension zip is shipped as `dsh-eda-bridge-extension-<version>.zip` (the
+ * version is the wire contract in jlc-extension/extension.json). Resolve it from
+ * that manifest instead of hard-coding a file name; older layouts without a
+ * versioned file keep working through the plain-name fallback.
+ */
+function resolveExtensionZipPath(): string {
+  const plain = fileURLToPath(new URL('../dsh-eda-bridge-extension.zip', import.meta.url))
+  try {
+    const manifest = JSON.parse(readFileSync(fileURLToPath(new URL('../jlc-extension/extension.json', import.meta.url)), 'utf8')) as { version?: string }
+    const version = typeof manifest.version === 'string' ? manifest.version : ''
+    if (version !== '') {
+      const versioned = fileURLToPath(new URL('../dsh-eda-bridge-extension-' + version + '.zip', import.meta.url))
+      if (existsSync(versioned)) return versioned
+    }
+  } catch {
+    // Bundle-only installs may lack the manifest; the plain name is the fallback.
+  }
+  return plain
+}
 
 /** Bridge script path, resolved once. */
 const BRIDGE_PATH = fileURLToPath(BRIDGE_URL)
@@ -252,7 +273,7 @@ export function apply(ctx: Context, config?: EdaMcpConfig): void {
   ctx.effect(() => {
     const disposers = makeEdaMcpRoutes({
       getConfig: () => current(),
-      extensionZipPath: fileURLToPath(EXTENSION_ZIP_URL),
+      extensionZipPath: resolveExtensionZipPath(),
       reconnect: remountClient,
       bridgeLaunch: describeBridgeLaunch,
       diagnostics: () => diagnostics.liveSnapshot(),

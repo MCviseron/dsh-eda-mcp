@@ -456,7 +456,8 @@ export function EdaMcpSettingsCard(props: EdaMcpSettingsCardProps) {
         <Field label={t('settings.downloadExtension')} hint={t('settings.installHint')}>
           <a
             href="/api/dsh-eda-mcp/extension.zip"
-            download="dsh-eda-bridge-extension.zip"
+            // No download name: the server sends the versioned file name, so the
+            // saved copy always states which build it is.
             style={{ ...secondaryButtonStyle, textDecoration: 'none', display: 'inline-flex', width: 'fit-content' }}
           >
             {t('settings.downloadExtension')}

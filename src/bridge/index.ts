@@ -507,7 +507,7 @@ function sendToClient(client, method, args, timeoutMs) {
 async function callExtension(method, args, timeoutMs) {
   const pool = pickClients()
   if (pool.length === 0) {
-    throw new Error('JLCEDA bridge extension is not connected. Open JLCEDA Pro, import dsh-eda-bridge-extension.zip, enable "Allow interactive with external", and keep a schematic or PCB page open.')
+    throw new Error('JLCEDA bridge extension is not connected. Open JLCEDA Pro, import dsh-eda-bridge-extension-' + VERSION + '.zip, enable "Allow interactive with external", and keep a schematic or PCB page open.')
   }
   const deadline = Date.now() + timeoutMs
   let lastError
@@ -1075,10 +1075,10 @@ async function executeTool(name, rawArgs, timeoutMs) {
         versionMismatch: stale.length > 0,
         mcpUnits: '0.01 inch', defaultPaper: DEFAULT_PAPER,
         hint: ready.length === 0
-          ? 'No JLCEDA extension is connected. Open JLCEDA Pro and click DSH MCP -> connect, or re-import dsh-eda-bridge-extension.zip.'
+          ? 'No JLCEDA extension is connected. Open JLCEDA Pro and click DSH MCP -> connect, or re-import dsh-eda-bridge-extension-' + VERSION + '.zip.'
           : (stale.length > 0
             ? 'Connected EDA extension ' + stale.join(', ') + ' does not match bridge ' + VERSION +
-              '. In JLCEDA Pro remove the OLD dsh-eda-bridge extension first, import dsh-eda-bridge-extension.zip again, then restart the app; a simple reload keeps the old copy.'
+              '. In JLCEDA Pro remove the OLD dsh-eda-bridge extension first, import dsh-eda-bridge-extension-' + VERSION + '.zip again, then restart the app; a simple reload keeps the old copy.'
             : 'ok'),
       }
     }
@@ -1459,7 +1459,7 @@ async function executeTool(name, rawArgs, timeoutMs) {
         waitedMs: waited.waitedMs,
         hint: waited.connected
           ? 'JLCEDA is connected; the eda_* tools can be used now.'
-          : 'The app was started but no EDA extension connected yet. In JLCEDA Pro: 扩展 → DSH MCP → 连接 (and enable “允许外部交互”); the extension must be imported once from dsh-eda-bridge-extension.zip.',
+          : 'The app was started but no EDA extension connected yet. In JLCEDA Pro: 扩展 → DSH MCP → 连接 (and enable “允许外部交互”); the extension must be imported once from dsh-eda-bridge-extension-' + VERSION + '.zip.',
       }
     }
 
@@ -1982,7 +1982,7 @@ async function executeTool(name, rawArgs, timeoutMs) {
           triggered: true, backgroundUnavailable: true, importResult: result,
           componentsBefore: pcbComponentBaseline.length, componentsAfter: after.length,
           confirmedYet: after.length > pcbComponentBaseline.length,
-          hint: 'The imported EDA extension has no background-job helper, so the sync was awaited. Re-import dsh-eda-bridge-extension.zip to use the async + polling flow.',
+          hint: 'The imported EDA extension has no background-job helper, so the sync was awaited. Re-import dsh-eda-bridge-extension-' + VERSION + '.zip to use the async + polling flow.',
         }
       }
       return {
@@ -2284,7 +2284,7 @@ async function executeTool(name, rawArgs, timeoutMs) {
           // Older EDA extension without the background-job helper: fall back to the
           // blocking call (which may hit the tool timeout for large boards).
           const blocking = asRecord(await callExtension('pcb_Document.autoRouting', [props], toolTimeout(args, timeoutMs)))
-          return { ...blocking, backgroundUnavailable: true, props, hint: 'The imported EDA extension has no background-job helper, so routing was awaited. Re-import dsh-eda-bridge-extension.zip to get the async + polling flow.' }
+          return { ...blocking, backgroundUnavailable: true, props, hint: 'The imported EDA extension has no background-job helper, so routing was awaited. Re-import dsh-eda-bridge-extension-' + VERSION + '.zip to get the async + polling flow.' }
         }
         const running = started.started === true || started.alreadyRunning === true
         return {

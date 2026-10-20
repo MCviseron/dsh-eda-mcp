@@ -16,7 +16,7 @@ DSH Agent
   └─ mcp__jlceda__eda_* 工具
        └─ @deepseek-ai/dsh-mcp-client（stdio）
             └─ lib/bridge.mjs（本地 MCP + WebSocket 服务，127.0.0.1:39009）
-                 └─ 嘉立创EDA专业版扩展 dsh-eda-bridge-extension.zip
+                 └─ 嘉立创EDA专业版扩展 dsh-eda-bridge-extension-<版本号>.zip
                       └─ 官方扩展 API（eda.sch_*）
 ```
 
@@ -47,8 +47,8 @@ pnpm add dsh-eda-mcp            # 或用 Web GUI 的插件管理器安装
 # 重启 DSH
 ```
 
-发布包里已包含 `lib/` 与 `dsh-eda-bridge-extension.zip`，**不需要构建工具链**。扩展仍需手动导入
-嘉立创EDA：zip 位于 `node_modules/dsh-eda-mcp/dsh-eda-bridge-extension.zip`（也可从设置卡片下载）。
+发布包里已包含 `lib/` 与 `dsh-eda-bridge-extension-<线协议版本>.zip`，**不需要构建工具链**。扩展仍需手动导入
+嘉立创EDA：zip 位于 `node_modules/dsh-eda-mcp/dsh-eda-bridge-extension-<线协议版本>.zip`（也可从设置卡片下载，下载到的文件名自带版本号）。
 
 ### 1. 安装到 DSH Web profile
 
@@ -65,10 +65,10 @@ cd dsh-eda-mcp && pnpm install && dsh plugin --profile web add "link:$PWD"
 
 ### 2. 导入嘉立创EDA桥接扩展
 
-构建会生成 `dsh-eda-bridge-extension-<版本号>.zip`（同时保留 `dsh-eda-bridge-extension.zip` 别名，内容相同；**分发请用带版本号的那个**，方便区分旧副本）。在嘉立创EDA专业版中：
+构建只生成 `dsh-eda-bridge-extension-<版本号>.zip`（不再保留同名别名——两个同内容文件只会让人分不清是哪一版）。在嘉立创EDA专业版中：
 
 1. 打开 **扩展 → 导入**。
-2. 选择 `dsh-eda-bridge-extension.zip`。
+2. 选择 `dsh-eda-bridge-extension-<版本号>.zip`。
 3. 在扩展列表中找到 **DSH EDA MCP Bridge**。
 4. 启用它，并务必开启 **允许外部交互**。
 
@@ -354,7 +354,7 @@ pnpm check       # 以上三步
 - `lib/index.js` — DSH Host 插件。
 - `lib/client.js` — DSH Web GUI 设置卡片。
 - `lib/bridge.mjs` — 独立 MCP/WebSocket 桥接子进程。
-- `dsh-eda-bridge-extension.zip` — 嘉立创EDA专业版扩展。
+- `dsh-eda-bridge-extension-<版本号>.zip` — 嘉立创EDA专业版扩展（版本号 = 线协议版本）。
 
 `lib/` 与 zip 都是构建产物（已 gitignore）；宿主加载的是打包后的 `lib/index.js`，所以改 `src/` 后必须 `pnpm build` **并重启 Host**（插件重载不会重新 import 已缓存的 ESM 模块）。仓库结构、发布打 tag 流程、bridge/扩展版本规则见 [CONTRIBUTING.md](CONTRIBUTING.md)；**发布到 npm** 的完整流程（首次手动发布，之后由 `v*` tag 经 trusted publishing/OIDC 自动发布）见 [docs/release.md](docs/release.md)。
 
