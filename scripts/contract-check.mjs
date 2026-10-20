@@ -102,6 +102,13 @@ for (const setName of ['var ALLOWED_API = new Set([', 'var FILE_METHODS = new Se
 const internalHandlers = new Set()
 for (const match of extension.matchAll(/message\.method === '(dsh\.internal\.[A-Za-z0-9]+)'/g)) internalHandlers.add(match[1])
 
+// The runtime gate must accept BOTH sets: an earlier version only checked
+// ALLOWED_API, so every FILE_METHODS export (BOM/netlist/Gerber) was refused.
+const gate = extension.match(/if \(!(?:[^)]*)ALLOWED_API\.has\(message\.method\)([^)]*)\)/)
+if (gate === null || !gate[1].includes('FILE_METHODS')) {
+  problems.push('the dispatch gate must accept FILE_METHODS as well as ALLOWED_API')
+}
+
 const called = new Set()
 for (const match of bridge.matchAll(/callExtension\('([A-Za-z_][A-Za-z0-9_.]*)'/g)) called.add(match[1])
 

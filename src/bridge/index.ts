@@ -18,7 +18,7 @@ import {
 } from './design-rules.ts'
 import { WORKFLOW_GUIDE, WORKFLOW_SUMMARY } from './workflow-guide.ts'
 
-const VERSION = '0.4.1'
+const VERSION = '0.4.2'
 const WS_PORT = Number(process.env.DSH_EDA_MCP_WS_PORT ?? 39009)
 const WS_HOST = '127.0.0.1'
 const ALLOW_RAW_API = (process.env.DSH_EDA_MCP_ALLOW_RAW_API ?? '1') !== '0'
@@ -1183,6 +1183,32 @@ function internalIdsOf(info) {
   return ids
 }
 
+/**
+ * Refuse PCB writes on a net the board does not have.
+ *
+ * Measured on 3.2.186: pcb_PrimitiveLine.create happily accepts an arbitrary net
+ * name and the board then carries a phantom net (which DRC reports as a netlist
+ * error). force:true is the documented escape hatch.
+ */
+async function assertKnownPcbNet(toolName, net, timeoutMs, force) {
+  const name = String(net ?? '').trim()
+  if (name === '') throw new Error(toolName + ' requires a net name')
+  if (force === true) return
+  let names
+  try {
+    const raw = await callExtension('pcb_Net.getAllNetsName', [], Math.min(timeoutMs, 8000))
+    names = new Set((Array.isArray(raw) ? raw : []).map(value => String(value)))
+  } catch {
+    // The PCB tab may not be active yet; let the write itself decide.
+    return
+  }
+  if (names.size === 0) return
+  if (names.has(name)) return
+  const sample = [...names].slice(0, 12).join(', ')
+  throw new Error(toolName + ': net "' + name + '" is not on this PCB (' + names.size + ' nets: ' + sample +
+    '…). A write on an unknown net creates a phantom net that DRC reports as a netlist error; pass force:true if that is really intended.')
+}
+
 async function executeTool(name, rawArgs, timeoutMs) {
   const args = asRecord(rawArgs)
   const tool = PCB_TOOL_ALIASES[name] ?? name
@@ -2216,6 +2242,7 @@ async function executeTool(name, rawArgs, timeoutMs) {
       if (layer === undefined) throw new Error('pcb_draw_track requires a valid layer')
       const net = String(args.net)
       assertNetName(net, 'pcb_draw_track')
+      await assertKnownPcbNet('pcb_draw_track', net, timeoutMs, args.force === true)
       // Width defaults to the role-based suggestion and is checked against the
       // 0.15 mm design minimum (docs/design-rules.md §5.1); force overrides.
       const width = checkTrackWidth(net, args.lineWidth === undefined ? undefined : Number(args.lineWidth), args.force === true)
@@ -2230,6 +2257,7 @@ async function executeTool(name, rawArgs, timeoutMs) {
     case 'pcb_draw_via': {
       const net = String(args.net)
       assertNetName(net, 'pcb_draw_via')
+      await assertKnownPcbNet('pcb_draw_via', net, timeoutMs, args.force === true)
       // Defaults follow the standard drill pairs; geometry is checked in mm.
       const role = classifyNet(net)
       const defaultVia = role === 'signal' ? VIA_SIZES_MM[0] : VIA_SIZES_MM[1]

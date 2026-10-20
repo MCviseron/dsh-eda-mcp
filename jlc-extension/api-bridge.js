@@ -486,8 +486,12 @@ function dshEdaMcpStatus() {
         error: JOB.error
       };
     }
-    if (!ALLOWED_API.has(message.method)) {
-      throw new Error('API method not allowed: ' + String(message.method));
+    // Two sets gate the wire: ALLOWED_API for plain calls and FILE_METHODS for the ones
+    // that hand a File back. Only checking the first one made every export (BOM,
+    // netlist, Gerber) answer "API method not allowed".
+    if (!ALLOWED_API.has(message.method) && !FILE_METHODS.has(message.method)) {
+      throw new Error('API method not allowed: ' + String(message.method) +
+        ' (the extension accepts ' + (ALLOWED_API.size + FILE_METHODS.size) + ' methods: ALLOWED_API + FILE_METHODS)');
     }
     if (message.method === 'dmt_EditorControl.getCurrentRenderedAreaImage') {
       var blob = await callApi(message.method, message.args || []);

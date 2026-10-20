@@ -23,6 +23,34 @@
 - 修复：构建前**清掉所有** `dsh-eda-bridge-extension*.zip`；`npm pack --dry-run` 现在只有 1 个 zip（40 files）。
 
 
+
+### 真机验证 PCB 侧：又抓到一个拦截 bug（线协议 0.4.1 → **0.4.2**）
+
+**1. 所有导出（BOM / 网表 / Gerber）本该被第二张白名单挡住**
+
+- 现象：`eda_pcb_export_gerber` 报 `API method not allowed: pcb_ManufactureData.getGerberFile`。
+- 真因：扩展的分发门只查 `ALLOWED_API`，而 `FILE_METHODS`（返回 File 的方法：BOM、网表、Gerber、截图）是**第二张表**，被门挡在外面 —— 上线以来所有 `FILE_METHODS` 导出其实都走不通（BOM/网表"能用"是因为它们同时也在 `ALLOWED_API` 里）。
+- 修复：门改为 `!ALLOWED_API.has(m) && !FILE_METHODS.has(m)`，报错信息里给出两表合计数量；`contract-check` 增加一条断言：**分发门必须同时接受 FILE_METHODS**（之前只校验两表并集，所以漏了）。
+
+**2. PCB 写入没有校验网络是否存在**
+
+- 现象：`pcb_draw_track({ net: "NO_SUCH_NET" })` **被应用接受**，板上多出一条幽灵网络的线（DRC 会报 netlist error）。验证时实际留下了一条，已用 `eda_pcb_delete_track` 清掉（98 条线、0 条幽灵）。
+- 修复：`pcb_draw_track` / `pcb_draw_via` 写入前用 `pcb_Net.getAllNetsName` 校验网络是否存在，不存在则拒绝并列出前 12 个已知网络；`force:true` 仍可强制。真机复测：两条都被拒绝，提示里带 17 个真实网络名。
+
+### PCB 侧真机验证结论（EDA 3.2.186 / 扩展 0.4.1）
+
+| 项 | 结果 |
+|---|---|
+| `eda_open_document(pcb)` | ✅ 活动文档 `documentType:3`，tabId 带 `@projectUuid` |
+| `pcb_get_layers` | ✅ 289 个层（id/name/type/color） |
+| `pcb_get_nets` | ✅ 17 个网络 |
+| `pcb_get_components` | ✅ 33 个器件，含封装与 LCSC 料号 |
+| `eda_pcb_get_drc_rules` | ✅ 返回完整规则配置（间距矩阵等） |
+| `eda_pcb_run_drc({includeVerboseError:true})` | ✅ **2.8 s** 返回结构化违规（`name/errorType/ruleName/explanation`），本次 1 条：Netlist Error（PCB 与原理图不一致） |
+| `eda_design_audit({drc:false})` | ✅ 返回 `counts/minWidthByNet/violations/warnings/checklist/rules`（1 violation、1 warning） |
+| `pcb_draw_via`（孔径 0.1mm） | ✅ 拒绝：孔径低于 0.2mm 且焊环 0.1mm 低于 0.2mm |
+| `pcb_draw_track`（未知网络） | ❌→✅ 修复后拒绝（见上） |
+| `eda_pcb_export_gerber` | ❌ `API method not allowed` → 已修，需重导 **0.4.2** 复测 |
 ### 批量标签改用受控并发（实测 2.2 倍）
 
 - `eda_place_net_labels` 原来是串行 for 循环：真机实测**每个标签约 2.1 s**（应用按图元落库），133 个仍需 ~4.6 分钟。
