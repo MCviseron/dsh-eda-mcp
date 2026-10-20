@@ -146,7 +146,7 @@
 | eda_launch 带 project 没打开工程 | 命令行路径被应用忽略 | 用 eda_open_project({ name }) 打开 |
 | 关应用后改动丢失 | eda_close 走了强制路径 | 关前先保存；看返回的 forced |
 | run_code 读大 JSON 被截断 | 宿主 read 有单行上限 | 用 node:fs 读盘或分片读 |
-| 覆铜创建失败（无法创建覆铜边框图元） | 应用侧限制：polygonStage=ok（轮廓被接受）但 pours 被拒，与网络/填充方式/坐标无关 | 工具会重试一次并给出该诊断；手工在 PCB 页框选覆铜（GND，顶层+底层），design_audit 记为 warn |
+| 覆铜/填充一律被拒（无法创建覆铜边框图元 / 无法创建填充图元） | 应用侧限制：静态+实例入口、单/复杂多边形、原始源码数组、6 种填充枚举、全参数组合全部被拒；同一多边形管线在本构建上连丝印折线都写不出来 | 不要在 API 层反复试：覆铜请在界面手工铺（GND、顶层+底层）；design_audit 持续记 copper-pour warn |
 | pcb_draw_mounting_hole 报“无法创建焊盘图元” | pad 形状必填，且槽孔只能用 ELLIPSE | 已内建：圆孔 ELLIPSE(d,d)，槽孔 ELLIPSE(长,宽)+hole[SLOT,宽,长]；OBLONG/RECTANGLE 焊盘会被拒 |
 | pcb_PrimitiveString.getAll / pcb_PrimitivePad.getAll 返回 0 | 这两个 API 按层查询 | 传 layer：丝印 3/4，多层焊盘 12；不传参恒为 0 |
 | 按坐标算的越界没被发现 | 图框/原点假设与真实页面不一致 | 用 eda_get_page_info 的真实值 + eda_capture 导 PNG 看实际版面 |

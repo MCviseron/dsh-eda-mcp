@@ -1,5 +1,25 @@
 # Changelog
 
+## 未发布（unreleased）
+
+### 覆铜调查结案（扩展 0.4.7 / 0.4.8 真机）
+
+结论：**这台构建（EDA 3.2.186 / pro-api 0.3.18.0bc12bb0）无法通过 API 创建铜面图元**。不是参数问题，证据链如下。
+
+| 尝试 | 结果 |
+|---|---|
+| `pcb_PrimitivePour.create` 静态入口 × 8 种组合（单/复杂多边形、原始源码数组、空网络、层 1/2/字符串、全参数显式、100×100 与 300×300 mil） | 全部 `无法创建覆铜边框图元` |
+| 实例入口 `new IPCB_PrimitivePour(...).create()`（0.4.7 新增，验证构造器在运行时可取） | 同样报错 |
+| 填充方式 `solid`/`45grid`/`90grid`/`0`/`1`/`2`/`SOLID`/`GRID45`/`45GRID` | 全部报错 |
+| `pcb_PrimitiveFill.create`（文档说明它同样带 `net` 参数）× 4 种（对象/原始数组/复杂源码/显式 fillMode） | 全部 `无法创建填充图元` |
+| **控制组**：同一多边形管线写丝印折线 `pcb_PrimitivePolyline` / `pcb_draw_polyline` | 也写不出来（`getAll` 0 条），而 `pcb_get_polylines` 内部路径能读到既有板框 1 条 |
+
+外部资料也到此为止：`prodocs` 正文是前端渲染（HTML 只有导航），官方配方给的流程就是我们实现的那条（`createPolygon`/`createComplexPolygon` → pour → `rebuildCopperRegion`），搜 "无法创建覆铜边框图元" 无任何社区解法，应用 bundle 内也搜不到该字符串。
+
+**因此撤掉 `pcb_create_copper_fill`**：它在这台构建上必然失败，留着就是给调用方挖坑。白名单里的 `pcb_MathPolygon.createComplexPolygon` 与 `pcb_PrimitiveFill.*` 保留（换构建可能有效），但不再包装成工具。
+
+**正解**：覆铜在界面手工铺（GND → 顶层+底层 → 重新铺铜）；`eda_design_audit` 会持续把缺覆铜记成 `copper-pour` warn，`eda_delivery_checklist` 也会带上它。
+
 ## 1.0.1 — 2026-10-20
 
 1.0.0 的真机回归修掉 4 个 bug（全部由"跑一遍"发现，不是靠读代码）：

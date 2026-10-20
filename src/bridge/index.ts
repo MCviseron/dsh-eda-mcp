@@ -21,7 +21,7 @@ import {
 } from './design-rules.ts'
 import { WORKFLOW_GUIDE, WORKFLOW_SUMMARY } from './workflow-guide.ts'
 
-const VERSION = '0.4.6'
+const VERSION = '0.4.8'
 const WS_PORT = Number(process.env.DSH_EDA_MCP_WS_PORT ?? 39009)
 const WS_HOST = '127.0.0.1'
 const ALLOW_RAW_API = (process.env.DSH_EDA_MCP_ALLOW_RAW_API ?? '1') !== '0'
@@ -3135,6 +3135,7 @@ async function executeTool(name, rawArgs, timeoutMs) {
 
     case 'eda_pcb_delete_via':
       return await callExtension('pcb_PrimitiveVia.delete', [String(args.primitiveId)], timeoutMs)
+
 
     case 'eda_pcb_create_pour': {
       const layer = resolveRegionLayer(args.layer, 'eda_pcb_create_pour')

@@ -2,7 +2,7 @@
   "uuid": "d5e0a1b2c3f4456789abcdef01234567",
   "name": "dsh-eda-bridge",
   "displayName": "DSH EDA MCP Bridge",
-  "version": "0.4.6",
+  "version": "0.4.8",
   "description": "Local WebSocket bridge used by the dsh-eda-mcp plugin to let DeepSeek Harness draw schematics and drive PCB operations in JLCEDA Pro through the official extension API.",
   "entry": "./api-bridge.js",
   "publisher": "dsh-eda-mcp",

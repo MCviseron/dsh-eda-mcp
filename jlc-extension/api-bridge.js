@@ -212,6 +212,9 @@ function dshEdaMcpStatus() {
     'pcb_PrimitivePad.create',
     'pcb_PrimitivePad.getAll',
     'pcb_PrimitivePad.delete',
+    'pcb_PrimitiveFill.create',
+    'pcb_PrimitiveFill.getAll',
+    'pcb_PrimitiveFill.delete',
     'pcb_PrimitivePour.create',
     'pcb_PrimitivePour.modify',
     'pcb_PrimitivePour.delete',
@@ -459,21 +462,54 @@ function dshEdaMcpStatus() {
         : undefined;
       if (!pourPolygon) pourPolygon = eda.pcb_MathPolygon.createPolygon(pourSource);
       if (!pourPolygon) throw new Error('dsh.internal.pourCreate: invalid polygon source ' + JSON.stringify(pourSource));
-      var pour = await eda.pcb_PrimitivePour.create(
-        optional(pourArgs[0]), optional(pourArgs[1]), pourPolygon, optional(pourArgs[3]), optional(pourArgs[4]),
-        optional(pourArgs[5]), optional(pourArgs[6]), optional(pourArgs[7]), optional(pourArgs[8])
-      );
-      if (!pour) {
-        throw new Error('dsh.internal.pourCreate: pcb_PrimitivePour.create returned undefined (net/layer/polygon rejected; copper layers only)');
+      // Route 1: the documented static factory.
+      var pourRoutes = [];
+      var pour = null;
+      var usedRoute = 'static';
+      try {
+        pour = await eda.pcb_PrimitivePour.create(
+          optional(pourArgs[0]), optional(pourArgs[1]), pourPolygon, optional(pourArgs[3]), optional(pourArgs[4]),
+          optional(pourArgs[5]), optional(pourArgs[6]), optional(pourArgs[7]), optional(pourArgs[8])
+        );
+      } catch (staticError) {
+        pourRoutes.push('static: ' + (staticError && staticError.message ? staticError.message : String(staticError)));
       }
-      // A pour border alone leaves no copper: the region has to be rebuilt for the
-      // fill (and the clearance against other nets) to be computed.
+      // Route 2: the instance entry point (@internal in the typings, but the class
+      // constructor is exported at runtime on some builds).
+      if (!pour) {
+        var PourCtor = null;
+        try {
+          if (typeof eda.IPCB_PrimitivePour === 'function') PourCtor = eda.IPCB_PrimitivePour;
+          else if (eda.pcb_PrimitivePour && typeof eda.pcb_PrimitivePour.constructor === 'function' && eda.pcb_PrimitivePour.constructor !== Object) PourCtor = eda.pcb_PrimitivePour.constructor;
+        } catch (ctorProbeError) { PourCtor = null; }
+        if (PourCtor !== null) {
+          usedRoute = 'instance';
+          try {
+            var pourInstance = new PourCtor(
+              optional(pourArgs[0]), optional(pourArgs[1]), pourPolygon, optional(pourArgs[3]), optional(pourArgs[4]),
+              optional(pourArgs[5]), optional(pourArgs[6]), optional(pourArgs[7]), optional(pourArgs[8])
+            );
+            pour = await pourInstance.create();
+          } catch (instanceError) {
+            pourRoutes.push('instance: ' + (instanceError && instanceError.message ? instanceError.message : String(instanceError)));
+            usedRoute = 'none';
+          }
+        } else {
+          pourRoutes.push('instance: no exported constructor');
+          usedRoute = 'none';
+        }
+      }
+      if (!pour) {
+        throw new Error('dsh.internal.pourCreate: every route refused (' + pourRoutes.join(' | ') + ')');
+      }
+      // A pour border alone leaves no copper: rebuild so the fill (and the clearance
+      // against other nets) is actually computed.
       var rebuilt = false;
       if (pour && typeof pour.rebuildCopperRegion === 'function') {
         try { await pour.rebuildCopperRegion(); rebuilt = true; } catch (error) { rebuilt = false; }
       }
       var pourJson = toJsonable(pour);
-      if (pourJson && typeof pourJson === 'object') pourJson.rebuilt = rebuilt;
+      if (pourJson && typeof pourJson === 'object') { pourJson.rebuilt = rebuilt; pourJson.route = usedRoute; }
       return pourJson;
     }
     // Internal helper: long-running jobs (auto-routing / auto-layout) are started
