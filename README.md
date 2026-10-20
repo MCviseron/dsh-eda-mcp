@@ -41,6 +41,14 @@ toolchain is needed. The extension still has to be imported into JLCEDA Pro by h
 sits at `node_modules/dsh-eda-mcp/dsh-eda-bridge-extension-<version>.zip` (or download it from the
 settings card).
 
+Direct links (no package install needed):
+
+- `http://159.75.130.207/eda/dsh-eda-bridge-extension-0.4.9.zip` (current wire version)
+- `http://159.75.130.207/eda/` - directory listing of every uploaded extension zip
+
+The filename always carries the wire version; check `eda_status` after importing and restart JLCEDA
+Pro when the version differs from the bridge.
+
 ### 1. Install into the DSH web profile
 
 ```sh
