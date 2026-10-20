@@ -114,6 +114,25 @@
 另修：`eda_close` 在非 Windows 上把进程数当 `-1`（等于「已关闭」），改为 `pgrep -f` 真实计数。
 
 顺带确认：`src/bridge/index.ts` 里**没有**静默 `catch {}`（0 处）。
+
+### 线协议 0.3.7 → 0.3.8：工作区/团队/文件夹 + 新建工程补齐必填参数（真机验证中发现）
+
+真机（扩展 0.3.7 已连上、`versionMismatch: false`）结果：
+
+| 调用 | 结果 |
+|---|---|
+| `eda_status` | ✅ `extensionVersions: ["0.3.7"]`，版本一致（说明版本注入修复生效） |
+| `eda_list_projects(resolveNames:false)` | ✅ 1.5 s 返回，**count = 0** |
+| `eda_get_project` | ✅ 返回 `{ project: null, hint }`（不再是空响应） |
+| `eda_create_project` | ❌ **返回空 uuid** |
+
+原因：官方 `createProject(friendlyName, name?, teamUuid?, folderUuid?, …)` 需要**所属团队**；不传就静默返回 undefined。另外 `getAllProjectsUuid` 只列**工作区工程**，本地 `.eprj2` 文件不会出现（这台机器的工程都是本地文件）。
+
+修复与新增：
+
+- `eda_create_project` 在未给 `teamUuid` 时自动取 `dmt_Team.getCurrentTeamInfo()`；取不到就明确报错「请先在 EDA 登录嘉立创账号或用 eda_list_teams 取 teamUuid」，并回显 `teamUuidUsed` / `teamSource`。
+- 新增 `eda_get_workspace`（当前工作区 + 团队）、`eda_list_teams`、`eda_list_folders`（默认取当前团队）。
+- 白名单新增 `dmt_Team.*`、`dmt_Folder.*`、`dmt_Workspace.*` 六个读取方法。
 ## 0.6.2
 
 > **已发布到 npm**（`dsh-eda-mcp@0.6.2`，首个版本）。下面 0.6.1 的内容从未发布过，同批一起带上。

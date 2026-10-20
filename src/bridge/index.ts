@@ -17,7 +17,7 @@ import {
   assertNetName, checkNetName, checkTrackWidth, checkVia, classifyNet, milToMm, suggestTrackWidthMil,
 } from './design-rules.ts'
 
-const VERSION = '0.3.7'
+const VERSION = '0.3.8'
 const WS_PORT = Number(process.env.DSH_EDA_MCP_WS_PORT ?? 39009)
 const WS_HOST = '127.0.0.1'
 const ALLOW_RAW_API = (process.env.DSH_EDA_MCP_ALLOW_RAW_API ?? '1') !== '0'
@@ -241,6 +241,9 @@ const TOOLS = [
   { name: 'eda_get_project', description: 'Read the current project (dmt_Project.getCurrentProjectInfo): uuid, friendly name, folder/team and other brief fields.', inputSchema: objectSchema({}) },
   { name: 'eda_open_project', description: 'Open a project by uuid, or by friendly name when only a name is known (the name is resolved through getAllProjectsUuid + getProjectInfo, exact match first, then case-insensitive substring).', inputSchema: objectSchema({ uuid: { type: 'string' }, name: { type: 'string' } }) },
   { name: 'eda_create_project', description: 'Create a project (dmt_Project.createProject) and return its uuid; open=true (default false) also opens it. friendlyName is required; name and folder/team default to the app defaults.', inputSchema: objectSchema({ friendlyName: { type: 'string' }, name: { type: 'string' }, teamUuid: { type: 'string' }, folderUuid: { type: 'string' }, description: { type: 'string' }, open: { type: 'boolean' } }, ['friendlyName']) },
+  { name: 'eda_get_workspace', description: 'Read the current workspace and team (dmt_Workspace.getCurrentWorkspaceInfo / dmt_Team.getCurrentTeamInfo). Needed before creating a project, which requires a team (and usually a folder) uuid.', inputSchema: objectSchema({}) },
+  { name: 'eda_list_teams', description: 'List teams (dmt_Team.getAllTeamsInfo), optionally including the teams this account is involved in.', inputSchema: objectSchema({ involved: { type: 'boolean' } }) },
+  { name: 'eda_list_folders', description: 'List folder uuids of one team (dmt_Folder.getAllFoldersUuid), optionally resolved through getFolderInfo.', inputSchema: objectSchema({ teamUuid: { type: 'string' }, resolveNames: { type: 'boolean', } }) },
   { name: 'eda_delete_project', description: 'Delete a project (dmt_Project.deleteProject) by uuid or friendly name.', inputSchema: objectSchema({ uuid: { type: 'string' }, name: { type: 'string' } }) },
   { name: 'eda_modify_project', description: 'Rename a project or change its description (dmt_Project.modifyProjectFriendlyName / modifyProjectDescription), addressed by uuid or current friendly name.', inputSchema: objectSchema({ uuid: { type: 'string' }, name: { type: 'string' }, friendlyName: { type: 'string' }, description: { type: 'string' } }) },
   { name: 'eda_copy_project', description: 'Copy a project (dmt_Project.copyProject), optionally into another team/folder and with a new friendly name; returns the new uuid.', inputSchema: objectSchema({ sourceUuid: { type: 'string' }, sourceName: { type: 'string' }, targetTeamUuid: { type: 'string' }, targetFolderUuid: { type: 'string' }, newFriendlyName: { type: 'string' }, newName: { type: 'string' } }) },
@@ -1188,6 +1191,46 @@ async function executeTool(name, rawArgs, timeoutMs) {
       return { opened: opened !== false, uuid, matched: resolvedProject.matched, current: current === undefined ? null : summarizePrimitive(current) }
     }
 
+    case 'eda_get_workspace': {
+      const workspace = await callExtension('dmt_Workspace.getCurrentWorkspaceInfo', [], timeoutMs).catch(() => undefined)
+      const team = await callExtension('dmt_Team.getCurrentTeamInfo', [], timeoutMs).catch(() => undefined)
+      return {
+        workspace: workspace === undefined ? null : summarizePrimitive(workspace),
+        team: team === undefined ? null : summarizePrimitive(team),
+        hint: workspace === undefined && team === undefined
+          ? 'No workspace/team is available: start JLCEDA Pro and sign in to a JLC account. Workspace projects cannot be created or listed without one.'
+          : 'ok',
+      }
+    }
+
+    case 'eda_list_teams': {
+      const teams = await callExtension(args.involved === true ? 'dmt_Team.getAllInvolvedTeamInfo' : 'dmt_Team.getAllTeamsInfo', [], toolTimeout(args, timeoutMs))
+      const list = Array.isArray(teams) ? teams : []
+      return { count: list.length, teams: list.map(item => summarizePrimitive(item) ?? item) }
+    }
+
+    case 'eda_list_folders': {
+      const teamUuid = args.teamUuid === undefined ? '' : String(args.teamUuid).trim()
+      let resolvedTeam = teamUuid
+      if (resolvedTeam === '') {
+        const current = await callExtension('dmt_Team.getCurrentTeamInfo', [], timeoutMs).catch(() => undefined)
+        resolvedTeam = String(pickValue(asRecord(current), 'Uuid', 'uuid') ?? '')
+      }
+      if (resolvedTeam === '') throw new Error('eda_list_folders needs teamUuid (eda_list_teams shows them)')
+      const uuids = await callExtension('dmt_Folder.getAllFoldersUuid', [resolvedTeam], toolTimeout(args, timeoutMs))
+      const list = Array.isArray(uuids) ? uuids.map(String) : []
+      if (args.resolveNames === false) return { teamUuid: resolvedTeam, count: list.length, uuids: list }
+      const folders = []
+      for (const folderUuid of list.slice(0, 20)) {
+        try {
+          folders.push({ folderUuid, info: summarizePrimitive(await callExtension('dmt_Folder.getFolderInfo', [resolvedTeam, folderUuid], timeoutMs)) })
+        } catch {
+          folders.push({ folderUuid, info: null })
+        }
+      }
+      return { teamUuid: resolvedTeam, count: list.length, folders }
+    }
+
     case 'eda_delete_project': {
       const resolvedProject = await resolveProjectUuid(args, timeoutMs)
       const deleted = await callExtension('dmt_Project.deleteProject', [resolvedProject.uuid], toolTimeout(args, timeoutMs))
@@ -1229,15 +1272,28 @@ async function executeTool(name, rawArgs, timeoutMs) {
     case 'eda_create_project': {
       const friendlyName = String(args.friendlyName ?? '').trim()
       if (friendlyName === '') throw new Error('eda_create_project requires friendlyName')
+      // createProject needs an owning team: default to the current one instead of
+      // passing undefined, which the app answers with an empty uuid.
+      let teamUuid = args.teamUuid === undefined ? '' : String(args.teamUuid).trim()
+      let teamSource = 'argument'
+      if (teamUuid === '') {
+        const current = await callExtension('dmt_Team.getCurrentTeamInfo', [], timeoutMs).catch(() => undefined)
+        teamUuid = String(pickValue(asRecord(current), 'Uuid', 'uuid') ?? '')
+        teamSource = teamUuid === '' ? 'unavailable' : 'current-team'
+      }
+      if (teamUuid === '') {
+        throw new Error('eda_create_project: no team is available (sign in to a JLC account in JLCEDA Pro, or pass teamUuid from eda_list_teams)')
+      }
+      const folderUuid = args.folderUuid === undefined ? '' : String(args.folderUuid).trim()
       const uuid = await callExtension('dmt_Project.createProject', [
         friendlyName,
         args.name === undefined ? undefined : String(args.name),
-        args.teamUuid === undefined ? undefined : String(args.teamUuid),
-        args.folderUuid === undefined ? undefined : String(args.folderUuid),
+        teamUuid,
+        folderUuid === '' ? undefined : folderUuid,
         args.description === undefined ? undefined : String(args.description),
-      ], timeoutMs)
+      ], toolTimeout(args, timeoutMs))
       if (typeof uuid !== 'string' || uuid === '') {
-        throw new Error('eda_create_project: the app returned no project uuid (it may have shown a dialog or rejected the name)')
+        throw new Error('eda_create_project: the app returned no project uuid (team ' + teamUuid + ' from ' + teamSource + '; the app may have shown a dialog or rejected the name)')
       }
       let opened = false
       if (args.open === true) {
@@ -1247,7 +1303,7 @@ async function executeTool(name, rawArgs, timeoutMs) {
           opened = false
         }
       }
-      return { created: true, uuid, friendlyName, opened }
+      return { created: true, uuid, friendlyName, teamUuid, teamSource, folderUuid: folderUuid === '' ? null : folderUuid, opened }
     }
 
     case 'eda_launch': {

@@ -22,6 +22,14 @@ Design limits enforced by these tools (track widths, via sizes, net naming) are 
 | `eda_export_project` | Export a project file (sys_FileManager.getProjectFile / getProjectFileByProjectUuid). With outPath the bridge writes the bytes to disk and returns the path; without it the base64 payload is returned only when inline=true. | `uuid?: string, fileName?: string, fileType?: string, outPath?: string, inline?: boolean` |
 | `eda_import_project` | Import a local project file (.eprj2/.epro/...) into the workspace (sys_FileManager.importProjectByProjectFile). Returns the import result and, when open=true, opens the imported project. | `path: string, fileType?: string, open?: boolean` |
 
+## Workspace
+
+| Tool | Description | Parameters |
+|---|---|---|
+| `eda_get_workspace` | Read the current workspace and team (dmt_Workspace.getCurrentWorkspaceInfo / dmt_Team.getCurrentTeamInfo). Needed before creating a project, which requires a team (and usually a folder) uuid. | `` |
+| `eda_list_teams` | List teams (dmt_Team.getAllTeamsInfo), optionally including the teams this account is involved in. | `involved?: boolean` |
+| `eda_list_folders` | List folder uuids of one team (dmt_Folder.getAllFoldersUuid), optionally resolved through getFolderInfo. | `teamUuid?: string, resolveNames?: boolean` |
+
 ## App control
 
 | Tool | Description | Parameters |
