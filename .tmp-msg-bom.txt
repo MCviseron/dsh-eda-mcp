@@ -1,8 +1,0 @@
-fix(bridge): refuse an empty BOM instead of returning blank text
-
-With the PCB active the export answers null, and the tool returned { bom: '', encoding:
-'unknown' }. That reads like an empty BOM rather than the actual cause. It now throws
-with the fix (the schematic page must be the active document), matching eda_export_netlist.
-
-Measured on extension 0.4.2 with the PCB active: rejected with the hint. With the
-schematic active it still returns encoding utf-16le earlier in this session.

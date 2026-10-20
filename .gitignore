@@ -4,4 +4,8 @@ dsh-eda-bridge-extension.zip
 dsh-eda-bridge-extension-*.zip
 bridge-test.err
 *.log
+# Scratch files (commit messages, probes) are written here and must never be committed:
+# one leaked into the repo because 'git add -A' ran next to the -F file it was reading.
+.tmp-*
+
 .DS_Store
