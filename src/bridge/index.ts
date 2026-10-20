@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto'
 import { execFileSync, spawn } from 'node:child_process'
 import { existsSync, statSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
-import { writeFile } from 'node:fs/promises'
+import { unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
@@ -314,7 +314,7 @@ const TOOLS = [
   { name: 'eda_move_component', description: 'Move/rotate/mirror a schematic component (sch_PrimitiveComponent.modify) without deleting and re-placing it, so the designator and value survive.', inputSchema: objectSchema({ primitiveId: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, rotation: { type: 'number' }, mirror: { type: 'boolean' } }, ['primitiveId']) },
   { name: 'pcb_draw_text', description: 'Put text on a PCB layer - silkscreen by default (3 top silk / 4 bottom silk). Use it for pin functions, board markings, version and fabrication notes; silkscreen text must not cover pads.', inputSchema: objectSchema({ x: { type: 'number' }, y: { type: 'number' }, text: { type: 'string' }, layer: { type: 'string' }, fontSize: { type: 'number' }, lineWidth: { type: 'number' }, rotation: { type: 'number' }, mirror: { type: 'boolean' }, alignMode: { type: 'integer' }, locked: { type: 'boolean' } }, ['x', 'y', 'text']) },
   { name: 'pcb_draw_mounting_hole', description: 'Place a NON-plated mounting hole or a slot (pcb_PrimitivePad with metallization:false). shape "round" is a drill-sized hole, shape "slot" an oval cut-out. Use this for mounting holes and connector slots instead of hacking the board outline.', inputSchema: objectSchema({ x: { type: 'number' }, y: { type: 'number' }, diameter: { type: 'number' }, shape: { type: 'string', enum: ['round', 'slot'] }, slotLength: { type: 'number' }, rotation: { type: 'number' }, plated: { type: 'boolean' }, annulus: { type: 'number' }, padNumber: { type: 'string' }, layer: { type: 'string' } }, ['x', 'y', 'diameter']) },
-  { name: 'eda_capture', description: 'Render the active document to a PNG (dmt_EditorControl.getCurrentRenderedAreaImage) and write it to outPath or return a data URL. Use it to LOOK at the sheet/board instead of trusting coordinate math; read the file back with the image reader.', inputSchema: objectSchema({ outPath: { type: 'string' }, inline: { type: 'boolean' } }) },
+  { name: 'eda_capture', description: 'Render the active document to a PNG (dmt_EditorControl.getCurrentRenderedAreaImage) and write it to outPath or return a data URL. Use it to LOOK at the sheet/board instead of trusting coordinate math. The PNG is a scratch file: read it, then call eda_capture({cleanup:true}) to delete every capture path this session wrote.', inputSchema: objectSchema({ outPath: { type: 'string' }, inline: { type: 'boolean' }, cleanup: { type: 'boolean' } }) },
   { name: 'eda_workflow_guide', description: 'Return the schematic working standard: grid-aligned manual placement, signal flow, when net labels/ports are required (a wire net name is overridden by connectivity), net-label fallback behaviour, batch placement and the verification order. Read it before laying out a sheet.', inputSchema: objectSchema({}) },
   { name: 'eda_list_api_methods', description: 'Ask the CONNECTED EXTENSION for the API methods it accepts right now (dsh.internal.listApiMethods) and report source/version/counts. Falls back to the bridge copy with stale:true only when the extension is an older zip. Use refresh:true to re-query.', inputSchema: objectSchema({ refresh: { type: 'boolean' } }) },
   { name: 'eda_delete_primitive', description: 'Delete a schematic primitive by kind and primitive id. Net ports, net flags and net labels are attribute primitives and need kind "netport"/"netflag"/"netlabel"; the text fallback labels are kind "text".', inputSchema: objectSchema({ kind: { type: 'string', enum: ['component', 'wire', 'rectangle', 'circle', 'arc', 'polygon', 'text', 'netport', 'netflag', 'netlabel'] }, primitiveId: { type: 'string' } }, ['kind', 'primitiveId']) },
@@ -517,6 +517,9 @@ let nextCallId = 1
  * reported the wrong capability boundary. Ask the extension instead.
  */
 let extensionApiCache = null
+
+/** Capture PNGs written this session, so eda_capture({cleanup:true}) can delete them. */
+const capturedFiles = []
 
 async function extensionApiMethods(timeoutMs, refresh = false) {
   if (!refresh && extensionApiCache !== null) return extensionApiCache
@@ -2300,6 +2303,16 @@ async function executeTool(name, rawArgs, timeoutMs) {
     }
 
     case 'eda_capture': {
+      // Captures are scratch files: remember every path written so a later call can
+      // delete them (cleanup:true) instead of leaving PNGs in the temp directory.
+      if (args.cleanup === true) {
+        const removed = []
+        const failed = []
+        for (const file of capturedFiles.splice(0, capturedFiles.length)) {
+          try { await unlink(file); removed.push(file) } catch { failed.push(file) }
+        }
+        return { ok: failed.length === 0, removed, failed, hint: 'Capture files are scratch: delete them as soon as you have looked at the image.' }
+      }
       // Geometry math is no substitute for looking at the document.
       const captured = await callExtension('dmt_EditorControl.getCurrentRenderedAreaImage', [], toolTimeout(args, timeoutMs))
       const dataUrl = typeof captured === 'string'
@@ -2311,7 +2324,11 @@ async function executeTool(name, rawArgs, timeoutMs) {
       const capturePath = args.outPath === undefined ? '' : String(args.outPath).trim()
       if (capturePath !== '') {
         await writeFile(capturePath, pngBytes)
-        return { ok: true, written: capturePath, bytes: pngBytes.length, hint: 'Read the file with the image reader to actually look at the document.' }
+        capturedFiles.push(capturePath)
+        return {
+          ok: true, written: capturePath, bytes: pngBytes.length,
+          hint: 'Read the file with the image reader, then call eda_capture({cleanup:true}) so the scratch PNG does not linger.',
+        }
       }
       if (args.inline === true) return { ok: true, bytes: pngBytes.length, dataUrl }
       return { ok: true, bytes: pngBytes.length, dataUrlPrefix: dataUrl.slice(0, 32), hint: 'Pass outPath to save a PNG, or inline:true to receive the data URL.' }
