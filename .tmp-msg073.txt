@@ -1,0 +1,31 @@
+chore(release): v0.7.3
+
+Both sides were exercised on the real machine; five real defects fixed and the
+effect-scope knowledge moved into the shipped documents.
+
+Fixes:
+- extension: text payloads decode by BOM (the BOM CSV was UTF-16LE and arrived as
+  replacement characters) — wire 0.4.1
+- extension: the dispatch gate now admits FILE_METHODS too, so every File-returning
+  export (Gerber, BOM, netlist, screenshot) stops answering 'API method not allowed'
+  — wire 0.4.2
+- eda_open_document verifies that a tab actually opened and reports it
+- PCB writes refuse a net the board does not have (a track on a phantom net passed
+  before and left a DRC netlist error)
+- the build no longer ships stale extension zips
+
+Performance:
+- eda_place_net_labels runs items with bounded concurrency (938 ms/label against
+  2.1 s sequential)
+
+Verification (EDA 3.2.186): schematic side exported 1.05 MB project, parsed netlist
+(33 parts), pins with pinName/pinNumber, 11 labels enumerated, batch placement and
+cleanup; PCB side 289 layers, 17 nets, 33 components, rich DRC violations (1 netlist
+error), design audit, via geometry refusal.
+
+Docs: skill chapter 12 'environment and effect scope' plus the system-prompt lines and
+README tables, so a fresh session knows that plugin code needs a DSH restart, the
+extension needs the zip re-imported, and only the bridge child can be reconnected.
+Patch-only wire versions are now the documented rule.
+
+101 tools, 6 test suites, contract-check green.
