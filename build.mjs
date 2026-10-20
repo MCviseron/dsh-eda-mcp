@@ -1,7 +1,7 @@
 import { build } from 'esbuild'
 import { execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
-import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { cp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 const sharedExternal = [
@@ -127,7 +127,12 @@ await writeFile(stagedBridge, bridgeSource.split(versionPlaceholder).join(extens
 // One artefact, versioned name: two copies with identical bytes only confuse
 // whoever has to pick one. Everything that needs the file resolves it by version.
 const zipVersioned = 'dsh-eda-bridge-extension-' + extensionVersion + '.zip'
-for (const stale of ['dsh-eda-bridge-extension.zip', zipVersioned]) await rm(stale, { force: true })
+// Remove EVERY extension zip, including ones from earlier versions: package.json ships
+// the dsh-eda-bridge-extension-*.zip glob, so a leftover 0.4.0 zip would travel in the
+// tarball next to 0.5.0 and defeat the whole point of versioned names.
+for (const entry of await readdir('.')) {
+  if (/^dsh-eda-bridge-extension.*\.zip$/.test(entry)) await rm(entry, { force: true })
+}
 execFileSync('powershell', [
   '-NoProfile',
   '-Command',

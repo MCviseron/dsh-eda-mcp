@@ -326,7 +326,19 @@ function dshEdaMcpStatus() {
       /(csv|json|net|plain|xml)/i.test(mimeType) ||
       /\.(csv|json|txt|net|xml)$/i.test(name);
     if (isText && typeof TextDecoder !== 'undefined') {
-      return { mimeType: mimeType, name: name, size: bytes.length, text: new TextDecoder('utf-8').decode(bytes) };
+      // A blanket UTF-8 decode destroyed text payloads that carry another encoding: the
+      // BOM CSV is UTF-16LE, so the bytes became replacement characters before the bridge
+      // ever saw them. Detect the BOM and report which decoder ran.
+      var encoding = 'utf-8';
+      var offset = 0;
+      if (bytes.length >= 2 && bytes[0] === 0xFF && bytes[1] === 0xFE) { encoding = 'utf-16le'; offset = 2; }
+      else if (bytes.length >= 2 && bytes[0] === 0xFE && bytes[1] === 0xFF) { encoding = 'utf-16be'; offset = 2; }
+      else if (bytes.length >= 3 && bytes[0] === 0xEF && bytes[1] === 0xBB && bytes[2] === 0xBF) { offset = 3; }
+      var body = bytes.subarray(offset);
+      var text;
+      try { text = new TextDecoder(encoding).decode(body); }
+      catch (_) { text = new TextDecoder('utf-8').decode(body); encoding = 'utf-8'; }
+      return { mimeType: mimeType, name: name, size: bytes.length, encoding: encoding, text: text };
     }
     return { mimeType: mimeType, name: name, size: bytes.length, dataUrl: 'data:' + mimeType + ';base64,' + bytesToBase64(bytes) };
   }

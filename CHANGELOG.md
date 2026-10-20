@@ -1,5 +1,44 @@
 # Changelog
 
+## 未发布（unreleased）
+
+### 真机验证 0.7.2 时发现并修掉的 3 个问题（线协议 0.4.0 → **0.5.0**）
+
+> 线协议升到 0.5.0：**需要重新导入 `dsh-eda-bridge-extension-0.5.0.zip`**（扩展代码有改动）。
+
+**1. BOM CSV 仍乱码（真因在扩展）**
+
+- 现象：`eda_export_bom` 返回 `��N\u0000o\u0000.`。
+- 排查：桥接侧的 `decodeTextPayload` 没救回，因为字节在**扩展**里就按 UTF-8 解成替换字符了（`blobToFilePayload` 对所有 `text/*` 一律 `TextDecoder("utf-8")`）。
+- 修复：扩展按**BOM 判定编码**（`FF FE`→utf-16le、`FE FF`→utf-16be、`EF BB BF`→utf-8），并在返回值里带 `encoding`；桥接侧解码保留为旧扩展兜底，返回值新增 `encoding` 字段。
+
+**2. `eda_open_document` 静默不建标签页**
+
+- 现象：应用刚启动停在 HOME 时，`dmt_EditorControl.openDocument(uuid)` 返回空且**不创建标签页**，随后所有 tab 相关调用读空——调用方以为页面已激活。
+- 修复：调用后 600 ms 复查 `getSplitScreenTree` 与活动文档，返回 `opened` / `activeDocumentUuid` / `tabIds`；未建标签页时给 `hint`（"该构建不会从 HOME 程序化打开文档，请先在应用里点开页面，别假设已激活"）。真机复测：工程加载完成后 `opened:true`，标签列表含原理图页与 PCB 页。
+
+**3. 构建会把旧版本 zip 一起打包**
+
+- 现象：升到 0.5.0 后目录里同时存在 0.4.0 与 0.5.0 两个 zip，而 `package.json files` 用的是 `dsh-eda-bridge-extension-*.zip` 通配 → 两个都会进 npm 包。
+- 修复：构建前**清掉所有** `dsh-eda-bridge-extension*.zip`；`npm pack --dry-run` 现在只有 1 个 zip（40 files）。
+
+### 真机验证结论（EDA 3.2.186 + 扩展 0.4.0）
+
+| 项 | 结果 |
+|---|---|
+| `eda_status` / `eda_launch` | ✅ 走 explorer 启动，8.7 s 内 1 个客户端连上，版本一致 |
+| `eda_list_projects` | ✅ 7 个工程（跨 2 个本地目录聚合） |
+| `eda_open_project({name})` | ✅ 中文名解析并打开，`opened:true, openReturned:true` |
+| `eda_export_project` | ✅ 1 056 444 字节 |
+| `eda_export_netlist` | ✅ `parsed:true`，80 647 字节，返回真实 netlist 对象（含 `DC1` 等器件） |
+| `eda_get_components` / `eda_get_pins` | ✅ 34 个器件；引脚返回 `pinNumber` / `pinName`（3/3 有值） |
+| `eda_get_net_labels` | ✅ `count:11, attributeCount:0, textCount:11`（以前恒为 0） |
+| `eda_place_net_labels`（批量 3 个） | ✅ 单次调用 7.0 s、`done:3 failed:0`、`method:"text"`；计数 11 → 14，`sessionTextLabels:3` |
+| 批量标签清理 | ✅ `eda_delete_primitive(kind:"text")` ×3 后回到 11，未保存文档 |
+| `eda_zoom_to_fit` | ✅ 应用返回的越界 bounds（-121…1776 / -2.5…1172）被裁剪为 `0..1170 / 0..825` 并重新应用 |
+| `eda_run_drc` | ⚠️ 只能拿到聚合项 `{type:"warn",count:1}`：即使 `includeVerboseError:true`，该构建也不返回 primitiveId/坐标。工具说明与 hint 已按实情改写 |
+| `eda_export_bom`（真机） | ❌ → 已修（见上），需重导 0.5.0 后复测 |
+
 ## 0.7.2 — 2026-10-20
 
 本版把原理图批量落地的 15 个问题全部处理完（13 修、2 记为限制），并把工作规范正式注册成 DSH 技能、扩成完整项目手册。

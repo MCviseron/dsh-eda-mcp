@@ -18,7 +18,7 @@ import {
 } from './design-rules.ts'
 import { WORKFLOW_GUIDE, WORKFLOW_SUMMARY } from './workflow-guide.ts'
 
-const VERSION = '0.4.0'
+const VERSION = '0.5.0'
 const WS_PORT = Number(process.env.DSH_EDA_MCP_WS_PORT ?? 39009)
 const WS_HOST = '127.0.0.1'
 const ALLOW_RAW_API = (process.env.DSH_EDA_MCP_ALLOW_RAW_API ?? '1') !== '0'
@@ -58,9 +58,18 @@ function safeAreas(paperName) {
 function decodeTextPayload(value) {
   const text = typeof value === 'string' ? value : ''
   if (text === '') return text
-  const looksUtf16 = text.charCodeAt(0) === 0xfeff || (text.length > 3 && text.charCodeAt(1) === 0 && text.charCodeAt(3) === 0)
-  if (!looksUtf16) return text
-  return Buffer.from(text, 'latin1').toString('utf16le').replace(String.fromCharCode(0xfeff), '')
+  // Three shapes reach us: an already-decoded string with a U+FEFF prefix, the raw
+  // BOM bytes mangled into the characters 0xFF 0xFE, and a null-interleaved UTF-16
+  // body without a BOM. Measured on EDA 3.2.186 the CSV BOM arrives mangled, which
+  // the first version of this helper missed.
+  if (text.charCodeAt(0) === 0xfeff) return text.slice(1)
+  if (text.charCodeAt(0) === 0xff && text.charCodeAt(1) === 0xfe) {
+    return Buffer.from(text.slice(2), 'latin1').toString('utf16le')
+  }
+  if (text.length > 3 && text.charCodeAt(1) === 0 && text.charCodeAt(3) === 0) {
+    return Buffer.from(text, 'latin1').toString('utf16le')
+  }
+  return text
 }
 
 function checkPointInFrame(x, y, paperName, margin = 0) {
@@ -297,7 +306,7 @@ const TOOLS = [
   { name: 'eda_get_net_labels', description: 'List every label-like primitive on the active schematic page: attribute primitives (netlabel/netport/netflag) PLUS plain texts left by the createNetLabel fallback, so they can be audited and deleted. Reports kind/primitiveId/net per entry.', inputSchema: objectSchema({ parentPrimitiveId: { type: 'string' } }) },
   { name: 'eda_place_net_label', description: 'Place a net label at x/y. The real API (sch_PrimitiveAttribute.createNetLabel) is probed once per session; when the build never answers, a plain TEXT label is placed instead, which carries no electrical meaning and must be paired with a stub wire. Pass probe:true to re-check.', inputSchema: objectSchema({ x: { type: 'number' }, y: { type: 'number' }, net: { type: 'string' }, fontSize: { type: 'number' }, rotation: { type: 'integer', enum: [0, 90, 180, 270] } }, ['x', 'y', 'net']) },
   { name: 'eda_place_net_labels', description: 'Place many net labels in ONE call (per-pin or by coordinate) and report done/failed per item: a 133-label schematic used to exceed the caller timeout with no progress. items: [{ pinPrimitiveId, net, stubLength?, offsetX?, offsetY? }] or [{ x, y, net, fontSize? }].', inputSchema: objectSchema({ items: { type: 'array', items: { type: 'object', additionalProperties: true } }, probe: { type: 'boolean' } }, ['items']) },
-  { name: 'eda_run_drc', description: 'Run schematic DRC with includeVerboseError and return one entry per problem (type, message, primitiveId, x/y plus the raw record) instead of bare counts.', inputSchema: objectSchema({ strict: { type: 'boolean' } }) },
+  { name: 'eda_run_drc', description: 'Run schematic DRC with includeVerboseError. On EDA 3.2.186 the app still returns AGGREGATED entries ({type:"warn",count:N}) with no primitiveId/coordinates, so entries are reported as-is and raw keeps the untouched payload; expect counts plus a hint until the app exposes details.', inputSchema: objectSchema({ strict: { type: 'boolean' } }) },
   { name: 'eda_auto_layout', description: 'Run schematic auto-layout (sch_Document.autoLayout). DISABLED by default: automated layout is not used unless the user asks for it. Pass force:true only then.', inputSchema: objectSchema({ uuids: { type: 'array', items: { type: 'string' } }, force: { type: 'boolean' } }) },
   { name: 'eda_auto_route', description: 'Run schematic auto-routing (sch_Document.autoRouting). DISABLED by default: route by hand unless the user explicitly asks. Pass force:true only then.', inputSchema: objectSchema({ uuids: { type: 'array', items: { type: 'string' } }, force: { type: 'boolean' } }) },
   { name: 'eda_export_netlist', description: 'Export the schematic netlist as text (default JLCEDA format). Returns null when no schematic is active - check eda_get_active_document / open the schematic page first.', inputSchema: objectSchema({ type: { type: 'string' } }) },
@@ -1845,10 +1854,37 @@ async function executeTool(name, rawArgs, timeoutMs) {
       return { document: info, documentTypeName: DOCUMENT_TYPES[type] ?? String(record.documentType ?? 'unknown'), documentType: record.documentType }
     }
 
-    case 'eda_open_document':
-      return await callExtension('dmt_EditorControl.openDocument', [
-        String(args.documentUuid), args.splitScreenId === undefined ? undefined : String(args.splitScreenId),
+    case 'eda_open_document': {
+      const documentUuid = String(args.documentUuid ?? '')
+      if (documentUuid === '') throw new Error('documentUuid is required')
+      const raw = await callExtension('dmt_EditorControl.openDocument', [
+        documentUuid, args.splitScreenId === undefined ? undefined : String(args.splitScreenId),
       ], timeoutMs)
+      // Measured on 3.2.186: from a freshly launched app sitting on HOME, openDocument
+      // answers without creating a tab, so callers thought the page was active and every
+      // tab-dependent call then returned empty. Verify instead of trusting it.
+      await sleep(600)
+      let tabIds = []
+      try {
+        const tree = asRecord(await callExtension('dmt_EditorControl.getSplitScreenTree', [], Math.min(timeoutMs, 4000)))
+        tabIds = (Array.isArray(tree.tabs) ? tree.tabs : []).map(tab => String(pickValue(asRecord(tab), 'tabId') ?? ''))
+      } catch { /* the tree is only a hint */ }
+      let activeUuid = ''
+      try {
+        const info = asRecord(await callExtension('dmt_SelectControl.getCurrentDocumentInfo', [], Math.min(timeoutMs, 4000)))
+        activeUuid = String(pickValue(info, 'uuid', 'Uuid') ?? '')
+      } catch { /* ignore */ }
+      const tabOpened = tabIds.length > 1 || (activeUuid !== '' && activeUuid !== '0')
+      return {
+        ...(raw !== null && typeof raw === 'object' ? raw : { result: raw ?? null }),
+        opened: tabOpened,
+        activeDocumentUuid: activeUuid || null,
+        tabIds,
+        hint: tabOpened
+          ? null
+          : 'The app accepted openDocument but created no editor tab (only the Start Page is open). This build does not open a document programmatically from the HOME screen: open the schematic/PCB page once in the app (double-click the project), then retry. Do not assume the page is active.',
+      }
+    }
 
     case 'eda_set_no_connect': {
       const ids = Array.isArray(args.primitiveIds) ? args.primitiveIds.map(String) : []
@@ -2019,7 +2055,7 @@ async function executeTool(name, rawArgs, timeoutMs) {
               raw: entry,
             }
           }),
-          hint: 'Field names vary by EDA build; "raw" keeps the untouched record.',
+          hint: 'EDA 3.2.186 returns AGGREGATED entries only (e.g. {type:"warn",count:1}) even with includeVerboseError, so message/primitiveId stay null — "raw" carries exactly what the app sent. Per-problem coordinates are not available on this build; use eda_pcb_run_drc for the PCB side and the DRC panel for details.',
         }
       }
       return { ok: Boolean(verbose), count: null, entries: [], raw: verbose }
@@ -2069,8 +2105,10 @@ async function executeTool(name, rawArgs, timeoutMs) {
       const raw = typeof payload === 'string'
         ? payload
         : (payload !== null && typeof payload === 'object' && typeof payload.text === 'string' ? payload.text : '')
-      // CSV arrives as UTF-16LE bytes; returned verbatim it read as NUL-separated junk.
-      return { format, bom: decodeTextPayload(raw) }
+      // The extension (0.5.0+) decodes text payloads with the encoding named by their BOM;
+      // decodeTextPayload stays as a fallback for older extensions.
+      const encoding = payload !== null && typeof payload === 'object' ? payload.encoding : undefined
+      return { format, bom: decodeTextPayload(raw), encoding: encoding ?? 'unknown' }
     }
 
     case 'eda_delete_primitive': {
