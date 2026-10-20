@@ -162,6 +162,8 @@ CHANGELOG 里要写明「是否需要重新导入扩展」。
       ```
 
 - [ ] `CHANGELOG.md` 把该版本标为「已发布到 npm」
+- [ ] 发布失败要补发时**不要重打 tag**：在 Actions 里手动运行 `publish`，勾选 `publish` 输入（`workflow_dispatch` 从 main 取代码，自动带上失败之后的所有修复；tag 校验只在 tag 触发时生效）。
+- [ ] 流水线自身失败时先本地复跑同一条命令：`pnpm check`（= typecheck + 6 套单测 + contract-check + build + guard:bundle）
 - [ ] npmmirror 已同步（`dist-tags.latest` 一致）
 
 ## 7. 已知失败模式速查

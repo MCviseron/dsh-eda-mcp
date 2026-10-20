@@ -75,7 +75,8 @@
     "test": "node --experimental-strip-types test/node-runtime.test.ts && node --experimental-strip-types test/config-values.test.ts && node --experimental-strip-types test/design-rules.test.ts && node --experimental-strip-types test/seams.test.ts && node --experimental-strip-types test/eda-launch.test.ts && node --experimental-strip-types test/skills.test.ts",
     "seam-check": "node scripts/seam-check.mjs",
     "contract-check": "node scripts/contract-check.mjs",
-    "check": "pnpm typecheck && pnpm test && pnpm contract-check && pnpm build",
+    "guard:bundle": "node scripts/guard-bundle-paths.mjs",
+    "check": "pnpm typecheck && pnpm test && pnpm contract-check && pnpm build && pnpm guard:bundle",
     "docs": "node scripts/gen-tools-doc.mjs && node scripts/gen-skill-doc.mjs",
     "prepublishOnly": "pnpm check",
     "prepare": "pnpm build"

@@ -68,15 +68,11 @@ jobs:
       - name: Build bundles
         run: pnpm build
 
+      # Single implementation (scripts/guard-bundle-paths.mjs), shared with check.yml.
+      # The inline version flagged every 'node_modules/' and failed on our own
+      # documentation string, which aborted the v0.7.3 publish before npm saw it.
       - name: Guard - no build-machine paths in the bundles
-        shell: pwsh
-        run: |
-          $hits = Select-String -Path lib/index.js, lib/bridge.mjs, lib/client.js -Pattern 'node_modules/' -AllMatches
-          if ($hits) {
-            $hits | ForEach-Object { Write-Host $_.Line }
-            Write-Host "::error::Bundles contain build-machine module paths; the build is not reproducible."
-            exit 1
-          }
+        run: pnpm guard:bundle
 
       - name: Pack (dry run)
         if: github.event_name == 'workflow_dispatch' && inputs.publish == false

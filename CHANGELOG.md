@@ -75,6 +75,21 @@
 | `eda_run_drc` | ⚠️ 只能拿到聚合项 `{type:"warn",count:1}`：即使 `includeVerboseError:true`，该构建也不返回 primitiveId/坐标。工具说明与 hint 已按实情改写 |
 | `eda_export_bom`（真机） | ❌ → 已修（见上），需重导 0.4.1 后复测 |
 
+
+### 发布流水线修掉两个 CI bug（v0.7.3 因此没上 npm）
+
+**1. `publish.yml` 的"无构建机路径"守卫误杀**
+
+- 守卫用 `Select-String -Pattern 'node_modules/'` 扫 `lib/*.js`，命中了我自己写的**文档字符串**`扩展 zip 位置：node_modules/dsh-eda-mcp/dsh-eda-bridge-extension-<版本>.zip`（这是要告诉用户的正确信息，不是泄露的构建机路径），守卫直接 `exit 1`，**publish 步骤从没执行**。
+- 修复：守卫抽成 `scripts/guard-bundle-paths.mjs`（`pnpm guard:bundle`），只认**绝对路径**形态的泄露（`D:/…/node_modules`、`/home/`、`/Users/`、`/root/`、`node_modules/.pnpm`），两个 workflow 共用同一实现。
+- 真机验证：注入 `D:/Program/…/node_modules/.pnpm/x.js` → 守卫 `exit 1` 并报出文件与行号；恢复后 PASS。
+
+**2. `check.yml` 上传的是已被移除的别名 zip**
+
+- `path: dsh-eda-bridge-extension.zip` + `if-no-files-found: error`，但构建自 0.7.0 起只产出**带版本号**的 zip（别名是故意删掉的）→ 上传步骤失败，整个 check workflow 红。
+- 修复：改成 `dsh-eda-bridge-extension-*.zip`，并把 `pnpm guard:bundle` 也加进 check。
+
+> 影响：`v0.7.3` 的 tag 已推，但 npm 上仍只有 `0.7.2`。补法：在 Actions 里手动运行 `publish` 工作流并勾选 `publish`（`workflow_dispatch` 从 main 取代码，自动带上这两个修复），无需重打 tag。
 ## 0.7.2 — 2026-10-20
 
 本版把原理图批量落地的 15 个问题全部处理完（13 修、2 记为限制），并把工作规范正式注册成 DSH 技能、扩成完整项目手册。

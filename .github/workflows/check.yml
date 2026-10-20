@@ -37,9 +37,15 @@ jobs:
       - name: Build
         run: pnpm build
 
+      - name: Guard - no build-machine paths in the bundles
+        run: pnpm guard:bundle
+
+      # The build writes ONE versioned zip (dsh-eda-bridge-extension-<version>.zip) and
+      # deliberately keeps no unversioned alias, so this must glob, not name a fixed file:
+      # a fixed name made the whole check workflow fail with if-no-files-found: error.
       - name: Upload the EDA bridge extension
         uses: actions/upload-artifact@v4
         with:
           name: dsh-eda-bridge-extension
-          path: dsh-eda-bridge-extension.zip
+          path: dsh-eda-bridge-extension-*.zip
           if-no-files-found: error
