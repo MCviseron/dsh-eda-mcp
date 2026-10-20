@@ -157,6 +157,23 @@ export const SKILL_PLAYBOOK_LINES: readonly string[] = [
   "- [ ] 视觉：导出图片自查，标签不压符号、器件不重叠、功能框清晰。",
   "- [ ] 保存：文档已保存，工程已 eda_export_project 备份。",
   "- [ ] Gerber 已导出且层数与板层一致。",
+  "",
+  "## 12. 环境与生效规则（全新会话必读）",
+  "",
+  "这套工具分三层，改动生效范围完全不同——不确定时先看这张表，不要凭直觉重试。",
+  "",
+  "| 改了什么 | 谁来做 | 怎么生效 | 怎么确认 |",
+  "|---|---|---|---|",
+  "| 插件源码 `src/`（宿主侧：配置、路由、技能注册、MCP 工具表） | 开发者 | `node build.mjs` 后**重启 DSH**（桌面端关掉重开） | 会话里能看到新工具；`/api/dsh-eda-mcp/diagnostics` 的 `skills` 字段 |",
+  "| 扩展 `jlc-extension/`（白名单、内部助手、编码处理） | 用户 | 嘉立创EDA 里**重新导入** `dsh-eda-bridge-extension-<版本>.zip` 并**重启应用** | `eda_status` 的 `extensionVersions` 与 `bridgeVersion` 一致 |",
+  "| 只需重启桥接子进程（改了 `lib/bridge.mjs`、换端口、卡住） | agent 可自行 | `POST /api/dsh-eda-mcp/reconnect` | 返回 200 且 `eda_status.connectedClients ≥ 1` |",
+  "| 没改任何东西但工具莫名消失 | agent | 先 reconnect；仍不行看 `/diagnostics` 的 `clientStartupError` | 工具重新出现在会话里 |",
+  "",
+  "- **插件代码改动对当前会话完全不生效**：宿主在启动时把 `lib/index.js` 载入内存，之后改文件、重新 build 都不会热更新。",
+  "- 版本纪律：扩展线协议**只递增最小位**（`0.4.1 → 0.4.2`），每次改动必须同时改 `jlc-extension/extension.json` 的 `version` 与桥接的 `VERSION`；不一致时 `eda_status.versionMismatch` 为 true。",
+  "- 新会话开工顺序：`eda_status`（连没连、版本对不对）→ 本技能（怎么干）→ 再动手；不要先假设环境就绪。",
+  "- 扩展 zip 位置：`node_modules/dsh-eda-mcp/dsh-eda-bridge-extension-<版本>.zip`，或设置卡片下载（文件名自带版本号）。",
+  "- 排查顺序：`eda_status` → `/api/dsh-eda-mcp/diagnostics`（`clientStartupError` / `skills` / `bridgeHealth`）→ `eda_list_api_methods`（白名单）→ 应用侧 DRC 面板。",
 ]
 
 export const SKILL_SECTIONS: readonly string[] = SKILL_PLAYBOOK_LINES.filter(line => line.startsWith("## "))

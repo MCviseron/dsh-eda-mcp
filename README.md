@@ -128,6 +128,8 @@ after routing.
 
 Schematic/symbol coordinates are in **0.01 inch** units; PCB coordinates are in **mil**. Rotation values are `0/90/180/270`. Wire points are a flat array `[x1, y1, x2, y2, ...]`.
 
+**What takes effect when** (read this before retrying anything): plugin source in `src/` needs `node build.mjs` plus a **DSH restart** — the running host keeps the old bundle in memory; the EDA extension in `jlc-extension/` needs the zip **re-imported** and JLCEDA Pro restarted (`eda_status.extensionVersions` must match `bridgeVersion`); only the bridge child can be restarted by the agent (`POST /api/dsh-eda-mcp/reconnect`). The generated `docs/schematic-workflow.md` chapter 12 has the full table, and the skill `jlceda-schematic-workflow` carries the same text.
+
 Every PCB tool has an equivalent `eda_pcb_*` alias (`eda_pcb_get_components` = `pcb_get_components`). See `README.zh.md` for the full PCB table and the region-layer rules (`pcb_PrimitiveRegion.create` accepts copper layers and MULTI only, so the board outline stays a closed line loop on layer 11).
 
 ## Tool reference

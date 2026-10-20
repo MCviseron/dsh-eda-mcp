@@ -26,7 +26,7 @@ report('skill is model and user invocable', candidate.invocation.modelInvocable 
 report('description states a trigger', candidate.description.includes('TRIGGER when'))
 report('description states a non-trigger', candidate.description.includes('DO NOT TRIGGER'))
 report('rank beats the user root (400)', candidate.rank > 400, String(candidate.rank))
-report('playbook has all twelve sections', SKILL_SECTIONS.length === 12, String(SKILL_SECTIONS.length))
+report('playbook has all thirteen sections', SKILL_SECTIONS.length === 13, String(SKILL_SECTIONS.length))
 report('playbook is a real manual, not a summary', body.length > 6000 && skillLineCount() > 120, body.length + ' chars / ' + skillLineCount() + ' lines')
 
 const definition = await provider.get(candidate)
@@ -51,6 +51,11 @@ const required = [
   'eda_get_net_labels',
   'eda_list_api_methods',
   '| 现象 | 原因 | 动作 |',
+  '## 12. 环境与生效规则（全新会话必读）',
+  '重启 DSH',
+  '重新导入',
+  '/api/dsh-eda-mcp/diagnostics',
+  '只递增最小位',
 ]
 for (const token of required) {
   report('manual mentions ' + token, body.includes(token))

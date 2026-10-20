@@ -117,6 +117,16 @@ curl.exe -s -X POST http://127.0.0.1:19387/api/dsh-eda-mcp/self-test
 
 > 桌面端加载的是打包后的 `lib/index.js`，**改完 `src/` 必须重新 `node build.mjs` 并重启桌面应用**（插件重载不会重新 import 已缓存的 ESM 模块）。
 
+**三层改动的生效范围（新会话/接手的人先看这张表，别凭直觉重试）**：
+
+| 改了什么 | 怎么生效 | 怎么确认 |
+|---|---|---|
+| 插件源码 `src/`（配置、路由、技能注册、工具表） | `node build.mjs` 后**重启 DSH** | 会话出现新工具；`/api/dsh-eda-mcp/diagnostics` 的 `skills` 字段 |
+| 扩展 `jlc-extension/`（白名单、内部助手、编码） | **重新导入** `dsh-eda-bridge-extension-<版本>.zip` 并**重启嘉立创EDA** | `eda_status` 的 `extensionVersions` 与 `bridgeVersion` 一致 |
+| 只需重启桥接子进程 | `POST /api/dsh-eda-mcp/reconnect`（agent 可自行） | 返回 200 且 `connectedClients ≥ 1` |
+
+完整版（含排查顺序与版本纪律）见生成文档 `docs/schematic-workflow.md` 第 12 章，或会话内 `skill` 加载 `jlceda-schematic-workflow`。
+
 ### 4. 在嘉立创EDA里手动连接
 
 DSH 桥接服务开着但 EDA 没有连上时，有三种入口：
