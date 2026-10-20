@@ -10,6 +10,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import type { Socket } from 'node:net'
 import { createInterface } from 'node:readline'
 import { buildLaunchArgs, buildLaunchScript, decodeRegistryOutput, resolveExecutable, type LaunchProbe } from './eda-launch.ts'
+import { buildIntake } from './design-intake.ts'
 import { runNetlistErc } from './netlist-erc.ts'
 import {
   ANNULUS_MIN_MM, BOARD_OUTLINE_WIDTH_MIL, MIN_TRACK_WIDTH_MIL, POUR_CLEARANCE_MIN_MIL,
@@ -315,6 +316,7 @@ const TOOLS = [
   { name: 'eda_move_component', description: 'Move/rotate/mirror a schematic component (sch_PrimitiveComponent.modify) without deleting and re-placing it, so the designator and value survive.', inputSchema: objectSchema({ primitiveId: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, rotation: { type: 'number' }, mirror: { type: 'boolean' } }, ['primitiveId']) },
   { name: 'pcb_draw_text', description: 'Put text on a PCB layer - silkscreen by default (3 top silk / 4 bottom silk). Use it for pin functions, board markings, version and fabrication notes; silkscreen text must not cover pads.', inputSchema: objectSchema({ x: { type: 'number' }, y: { type: 'number' }, text: { type: 'string' }, layer: { type: 'string' }, fontSize: { type: 'number' }, lineWidth: { type: 'number' }, rotation: { type: 'number' }, mirror: { type: 'boolean' }, alignMode: { type: 'integer' }, locked: { type: 'boolean' } }, ['x', 'y', 'text']) },
   { name: 'pcb_draw_mounting_hole', description: 'Place a NON-plated mounting hole or a slot (pcb_PrimitivePad with metallization:false). shape "round" is a drill-sized hole, shape "slot" an oval cut-out. Use this for mounting holes and connector slots instead of hacking the board outline.', inputSchema: objectSchema({ x: { type: 'number' }, y: { type: 'number' }, diameter: { type: 'number' }, shape: { type: 'string', enum: ['round', 'slot'] }, slotLength: { type: 'number' }, rotation: { type: 'number' }, plated: { type: 'boolean' }, annulus: { type: 'number' }, padNumber: { type: 'string' }, layer: { type: 'string' } }, ['x', 'y', 'diameter']) },
+  { name: 'eda_design_intake', description: "Requirement intake for a new board: call it BEFORE placing anything when the request is vague (for example: draw me an X board). Without answers it returns the questions in 6 sections (power, core, IO, mechanical, process, delivery), each marked critical or fallback-able with the reason it changes the drawing; pass answers:{questionId:value} to record them and see what is still missing. Ask the user with ask_user_question for the critical ones instead of guessing.", inputSchema: objectSchema({ answers: { type: 'object', additionalProperties: true }, reset: { type: 'boolean' } }) },
   { name: 'eda_netlist_erc', description: 'Read-only electrical smoke test over the schematic NETLIST (no application DRC needed): duplicate designators, unconnected pins, single-endpoint nets, shorted parts, power rails and decoupling, USB D+/D- pair, crystal (two nets + load caps + reaches the MCU), reset RC, BOOT pull resistor, Type-C CC pull-downs. DRC can be clean while the circuit is still wrong; these failures all show up in the netlist. Pass includeOk:true to see passing checks too.', inputSchema: objectSchema({ includeOk: { type: 'boolean' } }) },
   { name: 'eda_pcb_canvas_origin', description: 'Read (or align) the PCB canvas origin and convert points between the two coordinate spaces. JLCEDA displays CANVAS coordinates in its UI but every API takes DATA coordinates; the two differ by this offset, so a coordinate read off the screen will land somewhere else unless you convert or align. align:true calls setCanvasOrigin(0,0) so the display matches the API.', inputSchema: objectSchema({ align: { type: 'boolean' }, offsetX: { type: 'number' }, offsetY: { type: 'number' }, point: { type: 'object', additionalProperties: true } }) },
   { name: 'eda_capture', description: 'Render the active document to a PNG (dmt_EditorControl.getCurrentRenderedAreaImage) and write it to outPath or return a data URL. Use it to LOOK at the sheet/board instead of trusting coordinate math. The PNG is a scratch file: read it, then call eda_capture({cleanup:true}) to delete every capture path this session wrote.', inputSchema: objectSchema({ outPath: { type: 'string' }, inline: { type: 'boolean' }, cleanup: { type: 'boolean' } }) },
@@ -520,6 +522,9 @@ let nextCallId = 1
  * reported the wrong capability boundary. Ask the extension instead.
  */
 let extensionApiCache = null
+
+/** Confirmed design parameters for this session (see eda_design_intake). */
+let designBrief = null
 
 /** Capture PNGs written this session, so eda_capture({cleanup:true}) can delete them. */
 const capturedFiles = []
@@ -1826,6 +1831,20 @@ async function executeTool(name, rawArgs, timeoutMs) {
           }
         }
       }
+      // Soft gate (no block): a vague request ("draw me an X board") must not turn into
+      // guessed parameters. The first placement reports the missing questions instead.
+      if (designBrief === null) {
+        const intake = buildIntake(null)
+        return {
+          primitiveId,
+          result,
+          intakeWarning: {
+            message: 'No design parameters confirmed this session: supply, MCU, clocks, connectors, board size, layer count and fabrication were not agreed. Confirm them with eda_design_intake + ask_user_question before continuing, or the board may be electrically correct and practically wrong.',
+            criticalCount: intake.criticalCount,
+            firstMissing: intake.missingCritical.slice(0, 8),
+          },
+        }
+      }
       return { primitiveId, result }
     }
 
@@ -2345,6 +2364,28 @@ async function executeTool(name, rawArgs, timeoutMs) {
         holeLayer, String(args.padNumber ?? ''), holeX, holeY, holeRotation, padShape, undefined, holeSpec,
         0, 0, 0, metallization, undefined, undefined, undefined, undefined, false,
       ], timeoutMs)
+    }
+
+    case 'eda_design_intake': {
+      if (args.reset === true) designBrief = null
+      const answers = args.answers !== undefined && args.answers !== null ? args.answers : null
+      const answersReport = buildIntake(answers)
+      const merged = { ...(designBrief ?? {}), ...answersReport.brief }
+      const mergedReport = buildIntake(merged)
+      if (Object.keys(merged).length > 0) designBrief = merged
+      return {
+        ready: mergedReport.ready,
+        questionCount: mergedReport.questionCount,
+        criticalCount: mergedReport.criticalCount,
+        answered: mergedReport.answered,
+        missingCritical: mergedReport.missingCritical,
+        unknownAnswerKeys: mergedReport.unknownAnswerKeys,
+        brief: mergedReport.brief,
+        sections: mergedReport.sections.filter(section => section.questions.some(question => mergedReport.brief[question.id] === undefined)),
+        next: mergedReport.ready
+          ? 'All critical parameters are known: lay out the schematic, then run eda_netlist_erc before routing.'
+          : 'Ask the user for the missing critical parameters with ask_user_question, grouped by section, before placing parts. Offer the option list where a question has one; do not invent values.'
+      }
     }
 
     case 'eda_netlist_erc': {
