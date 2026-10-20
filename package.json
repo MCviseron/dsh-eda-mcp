@@ -76,7 +76,7 @@
     "seam-check": "node scripts/seam-check.mjs",
     "contract-check": "node scripts/contract-check.mjs",
     "check": "pnpm typecheck && pnpm test && pnpm contract-check && pnpm build",
-    "docs": "node scripts/gen-tools-doc.mjs",
+    "docs": "node scripts/gen-tools-doc.mjs && node scripts/gen-skill-doc.mjs",
     "prepublishOnly": "pnpm check",
     "prepare": "pnpm build"
   },

@@ -8,6 +8,7 @@
  * structural (ctx.skills.registerProvider), which keeps this build working across
  * DSH generations that ship the service under slightly different types.
  */
+import { SKILL_PLAYBOOK, SKILL_PLAYBOOK_LINES } from './skills-content.ts'
 import { WORKFLOW_GUIDE, WORKFLOW_SUMMARY } from './bridge/workflow-guide.ts'
 
 export const EDA_SKILL_NAME = 'jlceda-schematic-workflow'
@@ -26,25 +27,29 @@ const DESCRIPTION =
 const WHEN_TO_USE =
   'Use before touching a schematic sheet, and again whenever a layout or connectivity decision has to be made.'
 
-/** The skill body: rules first, then the reasoning and the known limits. */
+/**
+ * The skill body: the full project playbook (project → schematic → PCB → rules →
+ * troubleshooting → end-to-end scripts → delivery checklist), with the condensed
+ * bridge guide appended so the skill and eda_workflow_guide never contradict each
+ * other on the quick rules.
+ */
 export function skillBody(): string {
   return [
-    '# 嘉立创EDA 原理图工作规范',
+    SKILL_PLAYBOOK,
+    '',
+    '---',
+    '',
+    '## 附：精简版规范（与 eda_workflow_guide 同源）',
     '',
     WORKFLOW_SUMMARY,
     '',
     WORKFLOW_GUIDE,
-    '',
-    '## 批量与超时',
-    '',
-    '- 一次 MCP 调用里做多件事：eda_place_net_labels 支持整批标签；eda_set_no_connect 支持整批引脚。',
-    '- 单次调用不要超过约 20 个变更，间隔着读一次状态（eda_get_net_labels / eda_get_components），这样超时后也知道完成到哪。',
-    '',
-    '## 失败先看返回值',
-    '',
-    '- copied / deleted / imported 为 false 时都带 hint，说明该构建是否根本不支持；不要盲目重试。',
-    '- eda_api_call 被拒时调 eda_list_api_methods 看白名单，而不是换着名字猜。',
   ].join(String.fromCharCode(10))
+}
+
+/** Line count of the playbook, surfaced for diagnostics and tests. */
+export function skillLineCount(): number {
+  return SKILL_PLAYBOOK_LINES.length
 }
 
 interface SkillCandidateLike {

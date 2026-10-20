@@ -1,52 +1,152 @@
-# 原理图工作规范（插件内置）
+<!-- 本文件由 scripts/gen-skill-doc.mjs 从 src/skills-content.ts 生成，请勿手工编辑。 -->
+<!-- 同一份内容同时作为 DSH 技能 jlceda-schematic-workflow 的正文，以及系统提示精简版的来源。 -->
 
-这份文档与插件里的两份实现同源：系统提示的精简版（src/guidance.ts）和 eda_workflow_guide 工具的完整版（src/bridge/workflow-guide.ts）。
+# 嘉立创EDA 项目全流程手册（dsh-eda-mcp）
 
-本规范通过 **三条通道** 触达 agent（内容同源）：
+覆盖「打开/新建工程 → 原理图 → 同步到 PCB → 布局布线 → 校验 → 出 Gerber」全链路，
+以及每一步已经踩过的坑与处置办法。工具前缀统一是 mcp__jlceda__。
 
-1. **DSH 技能** `jlceda-schematic-workflow`（`ctx.skills.registerProvider`）：出现在会话技能目录里，用 `skill` 工具按需加载。
-2. 系统提示段（announceToAgent 开启时每轮注入）：栅格对齐、信号流向、禁止自动布局/布线、网络标签降级行为、引脚一次拿全、跨区域用网络端口。
-3. `eda_workflow_guide` 工具：按需拉取完整手册（不占用每轮上下文）。
+## 0. 适用范围与硬前提
 
-## 1. 布局
+- 原理图坐标单位 0.01 英寸，原点在 A4 图框左下角，y 向上；图框 x 0~1170 / y 0~825。
+- 标题栏占 x 460~1160 / y 10~190，必须避让；先 eda_get_page_info 读图框与安全区。PCB 坐标单位 mil。
+- 绝大多数原理图 API 只作用于「当前活动文档」：返回空先 eda_get_active_document，再 eda_open_document 切页。
+- 线协议版本必须桥接与扩展一致：eda_status 的 extensionVersions 是每个页面连上来的版本；
+  不一致说明装的是旧扩展，需重新导入 dsh-eda-bridge-extension-<版本>.zip 并重启应用（不是 reload）。
+- 默认禁止 eda_auto_layout / eda_auto_route（需 force:true 且设置里放行）。
+  版面检查用「导出图片自行识别」，不要让 EDA 自动重排。
 
-- 单位 0.01 英寸；A4 图框 0..1170 / 0..825，标题栏 right 460..1160 / bottom 10..190。
-- 先 eda_get_page_info 看安全区，再摆位；按 10 单位栅格对齐。
-- 信号左→右；电源在上、地在下；主控居中；去耦电容贴电源脚，晶振贴芯片。
-- 器件之间留 ≥20 单位用于走线与标签；模块用虚线框 + 文本标注分区。
-- 摆完用 eda_get_components（含包围盒）检查无重叠；挪动用 eda_move_component（保 designator/value）。
-- 不要用 eda_auto_layout / eda_auto_route：默认被拒绝（需 force:true 且设置里开启「允许原理图自动布局/自动布线」）。版面检查优先「导出图片自行识别」。
+## 1. 项目层：列出 / 打开 / 新建 / 保存 / 导出
 
-## 2. 连线与网络
+- 列工程：eda_list_projects。无过滤时遍历所有本地目录聚合，字段 friendlyName / teamUuid / uuid。
+  半离线模式下每个本地工程目录就是一个 team，其 uuid 就是目录路径。
+- 打开工程：eda_open_project({ name }) 支持中文工程名（精确优先，其次忽略大小写包含）。
+  返回的 opened 是「已观察到的活动工程」，另有 openReturned 反映 API 原始布尔。
+- 新建工程：createProject 在本机构建上无副作用，**用 eda_import_project 导入工程文件代替**：
+  eda_import_project({ path, teamUuid, friendlyName, open:true })，teamUuid 取 eda_list_teams 的目录路径。
+- 导出：eda_export_project({ outPath }) 落盘并返回字节数；不给 outPath 只回元数据，inline:true 才回 base64。
+- 保存：eda_save_document（原理图）/ eda_pcb_save_document（PCB）。关应用前先保存。
+- 不可用（实测）：createProject / deleteProject / copyProject 对本地工程无效；
+  删除与复制请在应用内完成，复制也可「导出 + 导入」得到独立副本。
 
-- 走线用 eda_draw_wire 的直线/45°，不要重叠、不要穿过器件符号。
-- 跨区域同名网络：用 eda_place_net_port（真网络端口）或网络标签；不要靠在两处画同名导线。原因：eda_draw_wire 的 net 只对悬空导线有效，端点一旦接触引脚，EDA 会按连通性重算网络名（实测 TESTNET 被并入 LED_A）。
-- 引脚身份：eda_get_pins 一次返回 pinName/pinNumber（内部一条 sch_PrimitiveComponent.getAllPinsByPrimitiveId），不要逐脚调 raw sch_PrimitivePin.get。
+## 2. 原理图：先读清楚再动手
 
-## 3. 网络标签的正确用法
+- eda_get_active_document → 确认 documentTypeName 是原理图页（HOME / PCB 都不行）。
+- eda_get_page_info → 图框、标题栏、安全区（main / lowerLeft）。
+- eda_get_components({ includeBounds:true }) → designator、value、x/y、包围盒，用来判断重叠。
+- eda_get_pins({ componentPrimitiveId }) → 一次拿到 pinName / pinNumber / x / y / rotation / noConnected，
+  不要逐脚调 raw sch_PrimitivePin.get。
+- eda_get_wires / eda_get_nets → 现有连线与网络；eda_get_net_labels → 标签、网络端口、旗标与文本标签。
+- eda_get_project → 工程结构（board → schematic / pcb 的 uuid），后面切页与 PCB 同步都要用。
 
-- 真实 API 是 sch_PrimitiveAttribute.createNetLabel；EDA 3.2.186 上它会永不 resolve。插件按会话缓存探测结论：第一次失败后直接降级为纯文本标签，不再每次付 4 秒超时。
-- 降级后的文本标签没有电气语义：连通性由 eda_place_net_label_at_pin 同时画的 stub 导线承担。
-- 批量用 eda_place_net_labels([{ pinPrimitiveId, net }, ...])：一次调用完成并逐条回报 ok/error，不要再串行上百次（既会打爆 run_code 超时，也没有进度可查）。
-- 标签可以审计与清理：eda_get_net_labels（属性图元 + 文本标签都列）配合 eda_delete_primitive(kind: netlabel|netport|netflag|text)。
-- 网络端口图元不会出现在 eda_get_components/BOM/网表里，这是应用行为；要删除请用上面的 kind。
+## 3. 原理图：布局规范
 
-## 4. 校验顺序
+- 栅格 10 单位对齐；同块内器件等间距（建议 ≥30 单位），块间留 ≥40 单位。
+- 信号流左→右；电源旗标朝上、地旗标朝下；主控居中，去耦电容贴电源脚（≤20 单位），晶振贴芯片且周围净空。
+- 器件之间留 ≥20 单位用于走线与标签，避免标签压住符号或引脚号。
+- 分区用 eda_draw_functional_box（虚线框 + 文本标注）：电源 / 主控 / 接口 / 信号处理。
+- 挪已有器件用 eda_move_component（保 designator/value），不要「删除 + 重放」。
+- 摆完一屏回读 eda_get_components 检查包围盒相交，有重叠先调开再连线。
+- 版面自查：导出画布图片交给模型识别，而不是让 EDA 自动重排（自动布局会把分好的区打散）。
 
-1. eda_get_active_document 确认在原理图页（不是 HOME / PCB）。
-2. eda_export_netlist（已解析成对象，不再双重编码）检查每个网络 ≥2 端点、无悬空。
-3. eda_run_drc 看逐条明细（type / message / primitiveId / 坐标）。
-4. 需要人看效果就导出图片，让模型识别版面，而不是让 EDA 重排。
+## 4. 原理图：连线与网络
 
-## 5. 已知不可用（实测，非插件 bug）
+- 局部连接用 eda_draw_wire（直线或 45°），不要穿过器件符号，不要与其它导线重叠。
+- **跨区域同名网络必须用 eda_place_net_port 或网络标签**：eda_draw_wire 的 net 只对悬空导线有效，
+  端点一接触引脚，EDA 按连通性重算网络名（实测 TESTNET 被并入 LED_A）。「两处画同名导线」不成立。
+- 网络标签：eda_place_net_label 先真实调 sch_PrimitiveAttribute.createNetLabel；该 API 在 3.2.186 上不响应，
+  插件按会话缓存探测结论后自动降级为纯文本标签（无电气语义），连通性由 stub 导线承担。
+- 引脚上放标签/旗标优先用 *_at_pin 变体：沿引脚方向外推 stubLength（默认 20）再放，避免压住符号。
+- 差分对写成 USB_DP / USB_DM 两个网络，不要写 USB_DP/DM；网络名只允许字母数字下划线点加减号。
+- 不用的引脚打未连接标记：eda_set_no_connect({ primitiveIds })。
+- 删除图元：eda_delete_primitive 的 kind 支持 component / wire / text / netport / netflag / netlabel；
+  网络端口不出现在 eda_get_components 中，只能用 eda_get_net_labels 审计后再删。
 
-- dmt_Project.createProject / deleteProject / copyProject 在 EDA 3.2.186（登录 + 半离线）上无副作用；新建工程用 eda_import_project（导入即建工程），删除/复制请在应用内完成。
-- lceda-pro.exe 直接 spawn 会立刻退出，eda_launch 在 Windows 上固定走 explorer.exe 交接。
-- 命令行带工程路径被应用忽略：eda_launch({ project }) 只保证把参数传下去，打开工程请用 eda_open_project。
-- 导入 .epro2 会原样复制内部 uuid（schematic/page/pcb），可能与源工程冲突；eda_import_project 会做一次碰撞检查并在 collisions 里报告（checkCollisions:false 可关）。
-## 6. 作为 DSH 技能注册
+## 5. 原理图：批量操作与超时控制
 
-插件通过 `ctx.skills.registerProvider()` 把本规范注册成技能 **`jlceda-schematic-workflow`**（rank 500，`TRIGGER when` / `DO NOT TRIGGER` 齐全），与本地/项目技能一起出现在会话技能目录，用 `skill` 工具按需加载；正文与本文件同源（`src/bridge/workflow-guide.ts` + `src/skills.ts`）。
+- 批量放标签用 eda_place_net_labels([{ pinPrimitiveId, net } | { x, y, net }])：一次调用、逐条 ok/error、
+  返回 done / failed / total。不要串行上百次（会打爆调用超时且没有进度可查）。
+- 批量未连接标记用 eda_set_no_connect({ primitiveIds })，内部并发 8。
+- 单次调用建议 ≤20 个变更，中间夹一次读取（eda_get_net_labels / eda_get_components）作为进度锚点；
+  超时后凭锚点知道完成到哪，而不是全量重来。
+- 探测类失败只付一次代价：net label 能力探测结果按会话缓存，probe:true 才重测。
 
-- 需要**宿主重启**（插件重新加载）后才出现；桥接 `reconnect` 不会刷新技能目录。
-- 旧版宿主没有 skills 服务时自动跳过，不影响其它功能。
+## 6. 原理图：校验与交付
+
+- eda_export_netlist → 已解析对象（parsed:true, netlist）。逐网络检查端点数 ≥2、无悬空单脚网络。
+- eda_run_drc → 逐条明细（type / message / primitiveId / x / y），按 primitiveId 回画布定位后修。
+- eda_export_bom（csv 已自动从 UTF-16 解码）→ 位号连续、封装非空、无 DUMMY。
+- 交付前把网络名清单与需求表比对（命名一致性比 DRC 更容易漏）。
+
+## 7. PCB：从同步到出 Gerber
+
+- 同步：eda_open_document 切到 PCB 页 → pcb_import_changes（默认异步，会弹应用自己的确认对话框）→
+  eda_pcb_wait_for_components 判定「新器件出现了」；不要用长超时硬等对话框。
+- 读现状：pcb_get_layers、pcb_get_nets({detail:true})、pcb_get_components({includePins:true})。
+- 板框：pcb_draw_board_outline({ points }) 生成 layer 11 的闭合 polyline。
+  不要用 pcb_draw_track 画板框（铜线，layer 11 被拒），也不要用 region（只支持铜层/MULTI）。
+- 布局：pcb_place_component / pcb_move_component 手工摆放（安装孔 → 板边接口 → 主控 → 配套器件）；
+  去耦电容距引脚 ≤2mm，晶振靠芯片且下方净空。
+- 走线：pcb_draw_track（不传线宽按网络角色给默认值，低于 6mil 直接拒绝）；改线用 pcb_modify_track；
+  整网加粗用 pcb_set_net_track_width。
+- 过孔：pcb_draw_via（默认孔径按角色给标准值；焊环 <0.2mm 拒绝，孔径 <0.3mm 警告）。
+- 铺铜：pcb_create_pour（points 为 mil 扁平数组，自动闭合）；先确认设计规则里铺铜间距 ≥6mil（建议 10mil）。
+- 自动布线：eda_pcb_auto_route 默认不用；确需使用才 wait:true 或后台 + eda_pcb_job_status 轮询。
+- 校验：eda_pcb_run_drc（includeVerboseError:true 拿逐条）+ eda_design_audit（线宽/过孔/网络名/板框/铺铜/DRC 只读体检）。
+- 交付：eda_pcb_export_gerber（返回 zip 的 base64 data URL，大板可能几 MB）。
+
+## 8. 设计规则速查（工具已强制）
+
+- 网络名：字母/数字/下划线/点/加号/减号，≤255 字符；空格、斜杠、括号、中文会被拒绝。
+- 线宽：普通信号 ≥6mil(0.15mm)、去耦分支 10mil、主干电源 16mil、>500mA 或 GND 20mil。
+- 过孔：信号 0.2/0.4mm、电源/GND 0.3/0.6mm、大电流 0.4/0.8mm；焊环 ≥0.2mm 强制。
+- 铺铜：顶/底层铺 GND，与其它网络间距 ≥6mil（建议 10mil），导出前移除孤岛。
+- 丝印：字符高度/宽度有最小值限制（见 docs/design-rules.md），丝印不得压焊盘。
+
+## 9. 故障与处置（现象 → 原因 → 动作）
+
+| 现象 | 原因 | 动作 |
+|---|---|---|
+| connectedClients=0 / 报未连接 | EDA 没开、扩展没导入或没点「连接」、端口被占 | 先 eda_status 看 hint；必要时 eda_launch 起应用并等扩展连上 |
+| extensionVersions 与 bridgeVersion 不一致 | 装的是旧扩展 | 重新导入对应版本 zip（文件名带版本号）并重启应用 |
+| API method not allowed | 该 API 不在扩展白名单 | 调 eda_list_api_methods 看清单；优先用包装好的工具 |
+| 调用 60s 超时 | 页面切走留下僵尸 socket，或单次改太多 | 只读调用会自动换页面重试一次；把批量拆到 ≤20/批 |
+| 读图返回空 / null | 活动文档不是原理图页 | eda_get_active_document → eda_open_document 切页 |
+| createNetLabel 无响应 | 3.2.186 该 API 不 resolve | 自动降级文本标签 + stub 导线；批量用 eda_place_net_labels |
+| eda_get_net_labels 曾返回 0 | 以前只查属性图元 | 现在同时列文本标签（kind:text），可直接删 |
+| 导线 net 被改掉 | 连通性重算覆盖指定名 | 跨区域改用网络端口 / 网络标签 |
+| 器件位置重叠 | 没按栅格、没留间距 | eda_move_component 重排；摆完回读包围盒 |
+| 导入 .epro2 后 uuid 冲突 | 应用原样复制内部 id | 看返回 collisions；避免同时打开源工程与新工程 |
+| createProject / copyProject / deleteProject 空或 false | 该构建对本地工程不支持 | 用 eda_import_project 建；删除/复制在应用内做 |
+| eda_launch 带 project 没打开工程 | 命令行路径被应用忽略 | 用 eda_open_project({ name }) 打开 |
+| 关应用后改动丢失 | eda_close 走了强制路径 | 关前先保存；看返回的 forced |
+| run_code 读大 JSON 被截断 | 宿主 read 有单行上限 | 用 node:fs 读盘或分片读 |
+
+## 10. 端到端剧本
+
+A. 在已有工程里改原理图：
+   eda_list_projects → eda_open_project({name}) → eda_get_project（取 schematic uuid）→ eda_open_document
+   → eda_get_page_info → eda_get_components / eda_get_pins → 摆位（eda_place_component / eda_move_component）
+   → 连线 eda_draw_wire + 跨区域 eda_place_net_labels → eda_export_netlist 查端点 → eda_run_drc 看明细
+   → eda_save_document。
+
+B. 新建工程并出板：
+   准备空白/模板工程文件 → eda_import_project({ path, teamUuid, friendlyName, open:true })
+   → 原理图流程（同 A）→ eda_get_project 取 pcb uuid → eda_open_document(pcb) → pcb_import_changes
+   → eda_pcb_wait_for_components 等确认 → 板框/布局/走线/过孔/铺铜 → eda_pcb_run_drc + eda_design_audit
+   → eda_pcb_save_document → eda_pcb_export_gerber → eda_export_project 备份。
+
+C. 只做 PCB：
+   eda_open_project → eda_get_project → eda_open_document(pcb) → pcb_get_nets(detail) / pcb_get_components(includePins)
+   → 板框与布局 → 走线（按角色线宽）→ 铺铜 → eda_pcb_run_drc + eda_design_audit → Gerber。
+
+## 11. 交付前检查清单
+
+- [ ] eda_status：connectedClients ≥1 且版本一致。
+- [ ] 网表：每个网络 ≥2 端点、无悬空；差分对成对；电源/地命名统一。
+- [ ] DRC：原理图与 PCB 都跑过，明细逐条清零或已确认豁免。
+- [ ] 设计规则：线宽/过孔/铺铜间距/丝印符合第 8 节。
+- [ ] BOM：位号连续、封装非空、无 DUMMY。
+- [ ] 视觉：导出图片自查，标签不压符号、器件不重叠、功能框清晰。
+- [ ] 保存：文档已保存，工程已 eda_export_project 备份。
+- [ ] Gerber 已导出且层数与板层一致。
