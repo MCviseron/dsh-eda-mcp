@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url'
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { EDA_MCP_GUIDANCE, SECTION_ORDER } from './guidance.ts'
-import { createEdaSkillProvider } from './skills.ts'
+import { createEdaSkillProvider, EDA_SKILL_NAME } from './skills.ts'
 import { makeEdaMcpRoutes, makeEdaMcpSettingsRoutes, type SettingsBridge } from './routes.ts'
 import { resolveBridgeRuntime } from './node-runtime.ts'
 import { BridgeDiagnostics } from './bridge-diagnostics.ts'
@@ -226,7 +226,15 @@ function describeBridgeLaunch(): { command: string; args: string[]; source: stri
 export function apply(ctx: Context, config?: EdaMcpConfig): void {
   // Config values always reach the rest of the plugin unwrapped: on DSH >= 0.2
   // `volatile` fields arrive as live value handles.
-  let current: () => EdaMcpConfig = () => unwrapConfig(config ?? {})
+  /** Skill registration outcome, reported by /api/dsh-eda-mcp/diagnostics. */
+let skillState: { attempted: boolean; registered: boolean; error: string | null; names: string[] } = {
+  attempted: false,
+  registered: false,
+  error: null,
+  names: [],
+}
+
+let current: () => EdaMcpConfig = () => unwrapConfig(config ?? {})
   let disposeClient: (() => Promise<void>) | undefined
   let disposeSection: (() => void) | undefined
   let mounting: Promise<void> = Promise.resolve()
@@ -286,7 +294,9 @@ export function apply(ctx: Context, config?: EdaMcpConfig): void {
       extensionZipPath: resolveExtensionZipPath(),
       reconnect: remountClient,
       bridgeLaunch: describeBridgeLaunch,
-      diagnostics: () => diagnostics.liveSnapshot(),
+      // Surface the skill registration so "did it register?" is answerable from
+      // /api/dsh-eda-mcp/diagnostics instead of guessing from the skill list.
+      diagnostics: () => ({ ...diagnostics.liveSnapshot(), skills: skillState }),
       launchConfig: () => bridgeLaunchFor(current()),
       selfTest: async () => {
         const runtime = resolveBridgeRuntime()
@@ -307,12 +317,27 @@ export function apply(ctx: Context, config?: EdaMcpConfig): void {
   // catalog next to local/project skills and loads on demand with the `skill` tool.
   // Structural typing + a runtime guard keeps older hosts (no skills service) working.
   ctx.inject(['skills'], (sctx) => {
-    const register = (sctx as unknown as {
-      skills?: { registerProvider?: (factory: (control: unknown) => unknown) => () => void }
-    }).skills?.registerProvider
-    if (typeof register !== 'function') return
-    const dispose = register(() => createEdaSkillProvider())
-    return () => { dispose() }
+    // Mirrors the reference implementation (dsh matlab-mcp plugin): the registration is
+    // an effect, so it is torn down with the plugin instead of leaking a provider.
+    sctx.effect(() => {
+      const skills = (sctx as unknown as {
+        skills?: { registerProvider?: (factory: (control: unknown) => unknown) => () => void }
+      }).skills
+      if (skills === undefined || typeof skills.registerProvider !== 'function') {
+        skillState = { ...skillState, attempted: true, registered: false, error: 'the host exposes no skills service' }
+        return () => { /* nothing to undo */ }
+      }
+      skillState = { ...skillState, attempted: true }
+      const dispose = skills.registerProvider(() => {
+        const provider = createEdaSkillProvider()
+        skillState = { ...skillState, registered: true, error: null, names: [EDA_SKILL_NAME] }
+        return provider
+      })
+      return () => {
+        skillState = { ...skillState, registered: false }
+        dispose()
+      }
+    }, 'eda-mcp: schematic skill')
   })
 
   const sync = (): void => {
