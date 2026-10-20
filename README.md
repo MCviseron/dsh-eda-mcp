@@ -222,7 +222,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the repository layout, the release/ta
 - Importing a `.epro2` copies its internal uuids (schematic/page/pcb), which can collide with the source project: `eda_import_project` reports them in `collisions`, but cannot regenerate them.
 - `dmt_Project.copyProject` is as inert as `createProject` / `deleteProject` for local projects; copy with `eda_export_project` + `eda_import_project` instead.
 - Automatic layout/routing is off by default (`allowAutoLayoutRouting`); `eda_auto_layout` / `eda_auto_route` only run with `force:true`.
-- The extension and bridge wire versions must move **together** (currently 0.4.0): a changed allow-list requires re-importing the zip, otherwise new tools answer `API method not allowed`. `eda_status` reports every connected page's version in `extensionVersions`.
+- The extension and bridge wire versions must move **together** (currently 0.4.1, patch-only bumps): a changed allow-list requires re-importing the zip, otherwise new tools answer `API method not allowed`. `eda_status` reports every connected page's version in `extensionVersions`.
 
 ## Repository
 
