@@ -28,4 +28,5 @@ export const EDA_MCP_GUIDANCE = [
   '看图判据（eda_capture + 图片读取）：只在 4 个时刻必看——布局完成待布线、布线完成待 DRC、丝印/工艺文字放完、坐标结果与直觉冲突时；不要每改一个图元截一次，也不要为确认返回值/属性看图（用 eda_get_* 更准）。单次约 2.7 s、0.4 MB；PNG 属临时文件，看完立刻 eda_capture({cleanup:true}) 删除，不在磁盘留截图。',
   '引脚身份用 eda_get_pins 一次拿全（含 pinName/pinNumber），不要逐脚调 raw sch_PrimitivePin.get；原理图挪器件用 eda_move_component（保 designator/value），不要删了重放。完整工作手册：调 eda_workflow_guide。',
   '连接问题先调 eda_status：connectedClients=0 表示 EDA 未连接（确认 EDA 已打开、扩展已导入并开启「允许外部交互」、端口 39009 空闲）；extensionVersion 与 bridgeVersion 不一致或报 API method not allowed 表示扩展是旧版，需要重新导入 dsh-eda-bridge-extension.zip 并重启 EDA。',
+  'PCB 坐标有两套：EDA 界面显示的是画布原点坐标，而所有 API 用的是数据原点坐标，两者差一个偏移（官方 API 注释原文）。按界面读出的坐标直接喂给工具会偏 —— 先用 eda_pcb_canvas_origin 查偏移，或 align:true 调 setCanvasOrigin(0,0) 让显示与 API 一致；原理图侧没有这个偏移。',
 ].join('\n')

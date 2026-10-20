@@ -18,7 +18,7 @@ import {
 } from './design-rules.ts'
 import { WORKFLOW_GUIDE, WORKFLOW_SUMMARY } from './workflow-guide.ts'
 
-const VERSION = '0.4.5'
+const VERSION = '0.4.6'
 const WS_PORT = Number(process.env.DSH_EDA_MCP_WS_PORT ?? 39009)
 const WS_HOST = '127.0.0.1'
 const ALLOW_RAW_API = (process.env.DSH_EDA_MCP_ALLOW_RAW_API ?? '1') !== '0'
@@ -314,6 +314,7 @@ const TOOLS = [
   { name: 'eda_move_component', description: 'Move/rotate/mirror a schematic component (sch_PrimitiveComponent.modify) without deleting and re-placing it, so the designator and value survive.', inputSchema: objectSchema({ primitiveId: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, rotation: { type: 'number' }, mirror: { type: 'boolean' } }, ['primitiveId']) },
   { name: 'pcb_draw_text', description: 'Put text on a PCB layer - silkscreen by default (3 top silk / 4 bottom silk). Use it for pin functions, board markings, version and fabrication notes; silkscreen text must not cover pads.', inputSchema: objectSchema({ x: { type: 'number' }, y: { type: 'number' }, text: { type: 'string' }, layer: { type: 'string' }, fontSize: { type: 'number' }, lineWidth: { type: 'number' }, rotation: { type: 'number' }, mirror: { type: 'boolean' }, alignMode: { type: 'integer' }, locked: { type: 'boolean' } }, ['x', 'y', 'text']) },
   { name: 'pcb_draw_mounting_hole', description: 'Place a NON-plated mounting hole or a slot (pcb_PrimitivePad with metallization:false). shape "round" is a drill-sized hole, shape "slot" an oval cut-out. Use this for mounting holes and connector slots instead of hacking the board outline.', inputSchema: objectSchema({ x: { type: 'number' }, y: { type: 'number' }, diameter: { type: 'number' }, shape: { type: 'string', enum: ['round', 'slot'] }, slotLength: { type: 'number' }, rotation: { type: 'number' }, plated: { type: 'boolean' }, annulus: { type: 'number' }, padNumber: { type: 'string' }, layer: { type: 'string' } }, ['x', 'y', 'diameter']) },
+  { name: 'eda_pcb_canvas_origin', description: 'Read (or align) the PCB canvas origin and convert points between the two coordinate spaces. JLCEDA displays CANVAS coordinates in its UI but every API takes DATA coordinates; the two differ by this offset, so a coordinate read off the screen will land somewhere else unless you convert or align. align:true calls setCanvasOrigin(0,0) so the display matches the API.', inputSchema: objectSchema({ align: { type: 'boolean' }, offsetX: { type: 'number' }, offsetY: { type: 'number' }, point: { type: 'object', additionalProperties: true } }) },
   { name: 'eda_capture', description: 'Render the active document to a PNG (dmt_EditorControl.getCurrentRenderedAreaImage) and write it to outPath or return a data URL. Use it to LOOK at the sheet/board instead of trusting coordinate math. The PNG is a scratch file: read it, then call eda_capture({cleanup:true}) to delete every capture path this session wrote.', inputSchema: objectSchema({ outPath: { type: 'string' }, inline: { type: 'boolean' }, cleanup: { type: 'boolean' } }) },
   { name: 'eda_workflow_guide', description: 'Return the schematic working standard: grid-aligned manual placement, signal flow, when net labels/ports are required (a wire net name is overridden by connectivity), net-label fallback behaviour, batch placement and the verification order. Read it before laying out a sheet.', inputSchema: objectSchema({}) },
   { name: 'eda_list_api_methods', description: 'Ask the CONNECTED EXTENSION for the API methods it accepts right now (dsh.internal.listApiMethods) and report source/version/counts. Falls back to the bridge copy with stale:true only when the extension is an older zip. Use refresh:true to re-query.', inputSchema: objectSchema({ refresh: { type: 'boolean' } }) },
@@ -2300,6 +2301,34 @@ async function executeTool(name, rawArgs, timeoutMs) {
         holeLayer, String(args.padNumber ?? ''), holeX, holeY, holeRotation, padShape, undefined, holeSpec,
         0, 0, 0, metallization, undefined, undefined, undefined, undefined, false,
       ], timeoutMs)
+    }
+
+    case 'eda_pcb_canvas_origin': {
+      // The UI shows canvas coordinates while every API uses data coordinates.
+      const setTo = args.align === true
+        ? [0, 0]
+        : (args.offsetX === undefined && args.offsetY === undefined ? null : [Number(args.offsetX ?? 0), Number(args.offsetY ?? 0)])
+      let aligned = null
+      if (setTo !== null) aligned = await callExtension('pcb_Document.setCanvasOrigin', setTo, timeoutMs)
+      const origin = await callExtension('pcb_Document.getCanvasOrigin', [], timeoutMs)
+      const out = {
+        canvasOrigin: origin,
+        aligned,
+        note: 'JLCEDA displays canvas coordinates; APIs use data coordinates. align:true sets the offset to zero so both agree.',
+      }
+      const point = args.point
+      if (point !== null && typeof point === 'object') {
+        const px = Number(point.x)
+        const py = Number(point.y)
+        if (Number.isFinite(px) && Number.isFinite(py)) {
+          out.point = {
+            input: { x: px, y: py },
+            canvasToData: await callExtension('pcb_Document.convertCanvasOriginToDataOrigin', [px, py], timeoutMs),
+            dataToCanvas: await callExtension('pcb_Document.convertDataOriginToCanvasOrigin', [px, py], timeoutMs),
+          }
+        }
+      }
+      return out
     }
 
     case 'eda_capture': {

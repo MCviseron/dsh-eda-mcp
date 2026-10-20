@@ -1,6 +1,34 @@
 # Changelog
 
 ## 未发布（unreleased）
+### 对照官方文档全面排查（线协议 0.4.5 → **0.4.6**）
+
+依据：本地安装的 `api-types.d.ts`（pro-api 0.3.18.0bc12bb0，127 类 / 1579 方法）、`easyeda/extension-dev-skill` 的 38 份配方、`easyeda-pro-file-format-v2` 的文件格式文档、`prodocs` 的 API 参考。
+
+**机械对照结果（自动化，可复跑）**
+
+| 项目 | 结果 |
+|---|---|
+| 白名单 171 条方法是否都存在于官方类型定义 | ✅ 0 缺失 |
+| 桥接 97 处 `callExtension` 方法名是否都存在 | ✅ 0 缺失 |
+| 调用参数个数是否符合官方签名（含必填/可选/变参） | ✅ 0 违规 |
+
+**发现并修掉的真问题：PCB 有两套坐标**
+
+官方 `PCB_Document` 注释原文：**「嘉立创 EDA 专业版前端显示的坐标均为画布原点；API 使用的均为数据原点」**，并提供 `getCanvasOrigin` / `setCanvasOrigin` / `convertCanvasOriginToDataOrigin` / `convertDataOriginToCanvasOrigin`。
+
+- 这就是"纯 API 计算位置不准、越界判断失真"的根因之一：界面坐标 ≠ API 坐标，中间差一个偏移；
+- 新增工具 **`eda_pcb_canvas_origin`**：读偏移、`align:true` 调 `setCanvasOrigin(0,0)` 让显示与 API 一致、并可用 `point` 在两个空间互转；
+- 原理图侧无此偏移（`SCH_Document` 没有对应 API），所以原理图坐标不存在该问题；
+- 系统提示与技能故障表同步该规则。
+
+**官方配方对照：我们已合规 / 无需改动的项**
+
+- SCH 禁止 `setState` 链式修改，必须用 `modify()` → 我们全部走 `modify()`，零 `setState_` 调用 ✅
+- 原理图引脚必须用 `sch_PrimitiveComponent.getAllPinsByPrimitiveId()`，`sch_PrimitivePin.getAll()` 恒空 → 我们用它 ✅
+- 覆铜是复杂多边形 + 必须 `rebuildCopperRegion()` → 已在 0.4.5 修 ✅
+- `pcb_Document.save()`：配方写"需传 uuid"，但**本地 0.3.18 类型定义是 `save(): Promise<boolean>`（无参）** → 以类型定义为准，我们的零参调用正确；配方文本对该版本已过时（记入文档，避免以后按配方误改）。
+
 ### 覆铜：从"应用限制"改判为"我用错了 API"（线协议 0.4.4 → **0.4.5**）
 
 我上一轮结论写错了：不是 EDA 不支持，而是**我用单多边形去建覆铜**。查官方文档后确认两点：
