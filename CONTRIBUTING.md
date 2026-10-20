@@ -106,6 +106,27 @@ git push origin main --follow-tags
 extension have their own version pair (they are the wire contract between the
 bridge process and JLCEDA, and `eda_status` reports a mismatch).
 
+### Uploading the extension zip to the download server
+
+Every wire-version bump produces a new `dsh-eda-bridge-extension-<version>.zip` (it is
+gitignored, so the file lives only in the npm tarball and on the download server). The
+maintainer asked for the server copy to be refreshed on every update — do it in the same
+session that bumps the extension, not later:
+
+1. upload the new zip to `/var/www/eda-download/` on `tencent` (`root@159.75.130.207`)
+   **without deleting older versions** — the version is in the filename, so old links keep
+   working;
+2. verify the transfer: the remote `sha256sum` must equal `Get-FileHash` locally, and
+   `curl -sI http://159.75.130.207/eda/<zip>` must answer `200` + `Content-Type:
+   application/zip` + the exact byte count;
+3. only then hand the link out:
+   `http://159.75.130.207/eda/dsh-eda-bridge-extension-<version>.zip`
+   (the listing at `http://159.75.130.207/eda/` shows every published zip).
+
+The directory is served by one additive `location /eda/` block in
+`/etc/nginx/conf.d/voice.conf`; adding or replacing files needs no nginx change and no
+reload. Keep every other part of that server untouched.
+
 Publishing to npm is documented step by step in [`docs/release.md`](docs/release.md):
 first release is manual (2FA / staged publishing), afterwards the `publish`
 workflow releases on every `v*` tag through npm trusted publishing (OIDC, no
