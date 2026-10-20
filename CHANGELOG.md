@@ -2,9 +2,9 @@
 
 ## 未发布（unreleased）
 
-### 真机验证 0.7.2 时发现并修掉的 3 个问题（线协议 0.4.0 → **0.5.0**）
+### 真机验证 0.7.2 时发现并修掉的 3 个问题（线协议 0.4.0 → **0.4.1**）
 
-> 线协议升到 0.5.0：**需要重新导入 `dsh-eda-bridge-extension-0.5.0.zip`**（扩展代码有改动）。
+> 线协议升到 0.4.1（扩展版本只递增最小位，不跳 minor）：**需要重新导入 `dsh-eda-bridge-extension-0.4.1.zip`**（扩展代码有改动）。
 
 **1. BOM CSV 仍乱码（真因在扩展）**
 
@@ -19,7 +19,7 @@
 
 **3. 构建会把旧版本 zip 一起打包**
 
-- 现象：升到 0.5.0 后目录里同时存在 0.4.0 与 0.5.0 两个 zip，而 `package.json files` 用的是 `dsh-eda-bridge-extension-*.zip` 通配 → 两个都会进 npm 包。
+- 现象：升版本后目录里同时存在新旧两个扩展 zip，而 `package.json files` 用的是 `dsh-eda-bridge-extension-*.zip` 通配 → 两个都会进 npm 包。
 - 修复：构建前**清掉所有** `dsh-eda-bridge-extension*.zip`；`npm pack --dry-run` 现在只有 1 个 zip（40 files）。
 
 ### 真机验证结论（EDA 3.2.186 + 扩展 0.4.0）
@@ -37,7 +37,7 @@
 | 批量标签清理 | ✅ `eda_delete_primitive(kind:"text")` ×3 后回到 11，未保存文档 |
 | `eda_zoom_to_fit` | ✅ 应用返回的越界 bounds（-121…1776 / -2.5…1172）被裁剪为 `0..1170 / 0..825` 并重新应用 |
 | `eda_run_drc` | ⚠️ 只能拿到聚合项 `{type:"warn",count:1}`：即使 `includeVerboseError:true`，该构建也不返回 primitiveId/坐标。工具说明与 hint 已按实情改写 |
-| `eda_export_bom`（真机） | ❌ → 已修（见上），需重导 0.5.0 后复测 |
+| `eda_export_bom`（真机） | ❌ → 已修（见上），需重导 0.4.1 后复测 |
 
 ## 0.7.2 — 2026-10-20
 

@@ -18,7 +18,7 @@ import {
 } from './design-rules.ts'
 import { WORKFLOW_GUIDE, WORKFLOW_SUMMARY } from './workflow-guide.ts'
 
-const VERSION = '0.5.0'
+const VERSION = '0.4.1'
 const WS_PORT = Number(process.env.DSH_EDA_MCP_WS_PORT ?? 39009)
 const WS_HOST = '127.0.0.1'
 const ALLOW_RAW_API = (process.env.DSH_EDA_MCP_ALLOW_RAW_API ?? '1') !== '0'
@@ -2105,7 +2105,7 @@ async function executeTool(name, rawArgs, timeoutMs) {
       const raw = typeof payload === 'string'
         ? payload
         : (payload !== null && typeof payload === 'object' && typeof payload.text === 'string' ? payload.text : '')
-      // The extension (0.5.0+) decodes text payloads with the encoding named by their BOM;
+      // The extension (0.4.1+) decodes text payloads with the encoding named by their BOM;
       // decodeTextPayload stays as a fallback for older extensions.
       const encoding = payload !== null && typeof payload === 'object' ? payload.encoding : undefined
       return { format, bom: decodeTextPayload(raw), encoding: encoding ?? 'unknown' }

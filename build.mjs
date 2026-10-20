@@ -128,8 +128,8 @@ await writeFile(stagedBridge, bridgeSource.split(versionPlaceholder).join(extens
 // whoever has to pick one. Everything that needs the file resolves it by version.
 const zipVersioned = 'dsh-eda-bridge-extension-' + extensionVersion + '.zip'
 // Remove EVERY extension zip, including ones from earlier versions: package.json ships
-// the dsh-eda-bridge-extension-*.zip glob, so a leftover 0.4.0 zip would travel in the
-// tarball next to 0.5.0 and defeat the whole point of versioned names.
+// the dsh-eda-bridge-extension-*.zip glob, so a stale zip from an older version would
+// tarball next to the current one and defeat the point of versioned names.
 for (const entry of await readdir('.')) {
   if (/^dsh-eda-bridge-extension.*\.zip$/.test(entry)) await rm(entry, { force: true })
 }
