@@ -870,6 +870,38 @@ async function auditPcb(args, timeoutMs) {
   if (outline.length === 0) violations.push({ rule: 'board-outline', message: 'No board outline on layer 11: auto-routing and Gerber export need a closed outline (pcb_draw_board_outline)', count: 1, samples: [] })
   if (pours.length === 0) warnings.push({ rule: 'copper-pour', message: 'No copper pour: a GND pour on the top/bottom layer is the recommended way to carry ground (eda_pcb_create_pour)', count: 1, samples: [] })
 
+  // Reference practice (measured on the official JLCEDA example board: 19 silkscreen
+  // strings, a copper pour, no thin 6 mil traces). Board identity/fab text and
+  // mounting holes are cheap and always expected on a real board.
+  try {
+    const silk = await callExtension('pcb_PrimitiveString.getAll', [PCB_LAYERS.topSilkscreen], timeoutMs)
+    const silkCount = Array.isArray(silk) ? silk.length : 0
+    if (silkCount === 0) {
+      warnings.push({ rule: 'silkscreen-text', message: 'No silkscreen text primitive: the official example board carries 19 (function labels, version, fab notes). Add board identity and pin functions with pcb_draw_text.' })
+    }
+  } catch {
+    // A missing read is not a design defect; skip silently.
+  }
+  try {
+    const pads = await callExtension('pcb_PrimitivePad.getAll', [PCB_LAYERS.multi], timeoutMs)
+    const holes = (Array.isArray(pads) ? pads : []).filter((pad) => (pad?.metallization ?? pad?.Metallization) === false)
+    // pcb_PrimitivePolyline.getAll items carry { polygon: { polygon: [x,y,'L',...] } }, so the
+    // width has to be read from the flat source array (a point-object version never existed).
+    const flatX = []
+    for (const entry of outline) {
+      const source = entry?.polygon?.polygon ?? entry?.Polygon?.polygon ?? []
+      for (let i = 0; i + 1 < source.length; i += 2) {
+        if (typeof source[i] === 'number') flatX.push(source[i])
+      }
+    }
+    const wide = flatX.length > 0 ? Math.max(...flatX) - Math.min(...flatX) : 0
+    if (holes.length === 0 && wide > 1200) {
+      warnings.push({ rule: 'mounting-hole', message: 'No non-plated mounting hole on a board wider than 1200 mil: use pcb_draw_mounting_hole (3.2 mm) in the corners.' })
+    }
+  } catch {
+    // Same: optional read.
+  }
+
   // §6.3 DRC
   let drc = { ran: false, reason: null, violationCount: null }
   if (args.drc !== false) {
