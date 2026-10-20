@@ -76,6 +76,15 @@
 `eda_close` 真机验证（本机）：`processesBefore: 5 → processesAfter: 0`，但 **`forced: true`** —— Windows 上 `taskkill /IM lceda-pro.exe /T`（不带 `/F`）对本机这个 Electron 应用**没能关掉**（8 s 后仍是 5 个进程），最终由 `/F` 强制结束。
 
 **因此：`eda_close` 之前请先 `eda_save_document` / `eda_pcb_save_document`，否则未保存的改动会丢**（返回值里的 `forced` 会告诉你是否走了强制路径）。
+
+### 线协议 0.3.6 → 0.3.7：工程 CRUD 补齐 + 诊断加强
+
+- 新增 `eda_delete_project`、`eda_modify_project`（改名/改描述）、`eda_copy_project`，与 `eda_open_project` 共用同一套「uuid 或工程名」解析。
+- `eda_status` 现在返回 **`extensionVersions`（每个页面一条）**，只要有一个客户端版本不等于桥接版本就 `versionMismatch: true`，并在 `hint` 里给出**准确的处理步骤**：先在 EDA 里**删除旧的 dsh-eda-bridge 扩展**，再导入 zip，然后**重启应用**（仅「重新加载」会保留旧副本）。
+- `eda_list_projects` 不再传 `[null,null,null]`（官方 API 把字面 null 当过滤值，会挂住调用）；不指定过滤条件时直接调 `getAllProjectsUuid()`。
+- `eda_get_project` 在没打开工程时返回 `{ project: null, hint }`，不再是空响应。
+
+实测记录（重要）：用户在 0.3.6 时导入 zip 后，`eda_status` 仍报 `extensionVersion: 0.3.5` 且 `dmt_Project.getAllProjectsUuid` 返回 `API method not allowed` —— **导入没有替换旧副本**，这就是上面 hint 里写明「先删除旧扩展再导入并重启」的原因。
 ## 0.6.2
 
 > **已发布到 npm**（`dsh-eda-mcp@0.6.2`，首个版本）。下面 0.6.1 的内容从未发布过，同批一起带上。

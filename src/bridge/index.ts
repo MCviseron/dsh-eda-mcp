@@ -17,7 +17,7 @@ import {
   assertNetName, checkNetName, checkTrackWidth, checkVia, classifyNet, milToMm, suggestTrackWidthMil,
 } from './design-rules.ts'
 
-const VERSION = '0.3.6'
+const VERSION = '0.3.7'
 const WS_PORT = Number(process.env.DSH_EDA_MCP_WS_PORT ?? 39009)
 const WS_HOST = '127.0.0.1'
 const ALLOW_RAW_API = (process.env.DSH_EDA_MCP_ALLOW_RAW_API ?? '1') !== '0'
@@ -241,6 +241,9 @@ const TOOLS = [
   { name: 'eda_get_project', description: 'Read the current project (dmt_Project.getCurrentProjectInfo): uuid, friendly name, folder/team and other brief fields.', inputSchema: objectSchema({}) },
   { name: 'eda_open_project', description: 'Open a project by uuid, or by friendly name when only a name is known (the name is resolved through getAllProjectsUuid + getProjectInfo, exact match first, then case-insensitive substring).', inputSchema: objectSchema({ uuid: { type: 'string' }, name: { type: 'string' } }) },
   { name: 'eda_create_project', description: 'Create a project (dmt_Project.createProject) and return its uuid; open=true (default false) also opens it. friendlyName is required; name and folder/team default to the app defaults.', inputSchema: objectSchema({ friendlyName: { type: 'string' }, name: { type: 'string' }, teamUuid: { type: 'string' }, folderUuid: { type: 'string' }, description: { type: 'string' }, open: { type: 'boolean' } }, ['friendlyName']) },
+  { name: 'eda_delete_project', description: 'Delete a project (dmt_Project.deleteProject) by uuid or friendly name.', inputSchema: objectSchema({ uuid: { type: 'string' }, name: { type: 'string' } }) },
+  { name: 'eda_modify_project', description: 'Rename a project or change its description (dmt_Project.modifyProjectFriendlyName / modifyProjectDescription), addressed by uuid or current friendly name.', inputSchema: objectSchema({ uuid: { type: 'string' }, name: { type: 'string' }, friendlyName: { type: 'string' }, description: { type: 'string' } }) },
+  { name: 'eda_copy_project', description: 'Copy a project (dmt_Project.copyProject), optionally into another team/folder and with a new friendly name; returns the new uuid.', inputSchema: objectSchema({ sourceUuid: { type: 'string' }, sourceName: { type: 'string' }, targetTeamUuid: { type: 'string' }, targetFolderUuid: { type: 'string' }, newFriendlyName: { type: 'string' }, newName: { type: 'string' } }) },
   { name: 'eda_close_document', description: 'Close one editor tab (dmt_EditorControl.closeDocument).', inputSchema: objectSchema({ tabId: { type: 'string' } }, ['tabId']) },
   { name: 'eda_export_project', description: 'Export a project file (sys_FileManager.getProjectFile / getProjectFileByProjectUuid). With outPath the bridge writes the bytes to disk and returns the path; without it the base64 payload is returned only when inline=true.', inputSchema: objectSchema({ uuid: { type: 'string' }, fileName: { type: 'string' }, fileType: { type: 'string', enum: ['epro', 'epro2'] }, outPath: { type: 'string' }, inline: { type: 'boolean' } }) },
   { name: 'eda_import_project', description: 'Import a local project file (.eprj2/.epro/...) into the workspace (sys_FileManager.importProjectByProjectFile). Returns the import result and, when open=true, opens the imported project.', inputSchema: objectSchema({ path: { type: 'string' }, fileType: { type: 'string' }, open: { type: 'boolean' } }, ['path']) },
@@ -965,6 +968,33 @@ function pickDefined(source, keys) {
   return out
 }
 
+/** Resolve a project uuid from { uuid } or { name } (exact match first, then case-insensitive substring). */
+async function resolveProjectUuid(args, timeoutMs) {
+  const direct = args.uuid === undefined ? '' : String(args.uuid).trim()
+  if (direct !== '') return { uuid: direct, matched: null }
+  const name = args.name === undefined ? '' : String(args.name).trim()
+  if (name === '') throw new Error('provide uuid or name')
+  const uuids = await callExtension('dmt_Project.getAllProjectsUuid', [], toolTimeout(args, timeoutMs))
+  const candidates = Array.isArray(uuids) ? uuids.map(String) : []
+  const resolved = []
+  for (const candidate of candidates) {
+    try {
+      const info = asRecord(await callExtension('dmt_Project.getProjectInfo', [candidate], toolTimeout(args, timeoutMs)))
+      resolved.push({ uuid: candidate, friendly: String(pickValue(info, 'FriendlyName', 'friendlyName', 'Name', 'name') ?? '') })
+    } catch {
+      resolved.push({ uuid: candidate, friendly: '' })
+    }
+  }
+  const matched = resolved.find(item => item.friendly === name)
+    ?? resolved.find(item => item.friendly.toLowerCase().includes(name.toLowerCase()))
+    ?? null
+  if (matched === null) {
+    throw new Error('no project matches "' + name + '"; known names: ' +
+      resolved.map(item => item.friendly || item.uuid).slice(0, 20).join(', '))
+  }
+  return { uuid: matched.uuid, matched }
+}
+
 async function executeTool(name, rawArgs, timeoutMs) {
   const args = asRecord(rawArgs)
   const tool = PCB_TOOL_ALIASES[name] ?? name
@@ -972,17 +1002,23 @@ async function executeTool(name, rawArgs, timeoutMs) {
   switch (tool) {
     case 'eda_status': {
       const ready = [...clients].filter(client => client.ready)
-      const extensionVersion = ready.map(client => client.extensionVersion).find(value => typeof value === 'string')
+      // Every EDA page keeps its own socket, so several clients can disagree: list
+      // them all and judge the bridge as outdated when ANY of them is not on VERSION.
+      const versions = ready.map(client => (typeof client.extensionVersion === 'string' ? client.extensionVersion : null))
+      const extensionVersion = versions.find(value => typeof value === 'string') ?? null
+      const stale = versions.filter(value => value !== VERSION)
       return {
         ok: true, bridgeVersion: VERSION, wsPort: WS_PORT, allowRawApi: ALLOW_RAW_API,
         connectedClients: ready.length,
         extensionVersion: extensionVersion ?? null,
-        versionMismatch: typeof extensionVersion === 'string' && extensionVersion !== VERSION,
+        extensionVersions: versions,
+        versionMismatch: stale.length > 0,
         mcpUnits: '0.01 inch', defaultPaper: DEFAULT_PAPER,
         hint: ready.length === 0
           ? 'No JLCEDA extension is connected. Open JLCEDA Pro and click DSH MCP -> connect, or re-import dsh-eda-bridge-extension.zip.'
-          : (typeof extensionVersion === 'string' && extensionVersion !== VERSION
-            ? 'The connected EDA extension version differs from the bridge version. Re-import dsh-eda-bridge-extension.zip and restart JLCEDA Pro.'
+          : (stale.length > 0
+            ? 'Connected EDA extension ' + stale.join(', ') + ' does not match bridge ' + VERSION +
+              '. In JLCEDA Pro remove the OLD dsh-eda-bridge extension first, import dsh-eda-bridge-extension.zip again, then restart the app; a simple reload keeps the old copy.'
             : 'ok'),
       }
     }
@@ -1075,11 +1111,13 @@ async function executeTool(name, rawArgs, timeoutMs) {
     }
 
     case 'eda_list_projects': {
-      const uuids = await callExtension('dmt_Project.getAllProjectsUuid', [
-        args.teamUuid === undefined ? undefined : String(args.teamUuid),
-        args.folderUuid === undefined ? undefined : String(args.folderUuid),
-        args.workspaceUuid === undefined ? undefined : String(args.workspaceUuid),
-      ], timeoutMs)
+      // Omit the filters entirely when they are not given: the official API treats a
+      // literal null as a filter value and the call does not resolve.
+      const filters = []
+      if (args.teamUuid !== undefined) filters.push(String(args.teamUuid))
+      if (args.folderUuid !== undefined || args.workspaceUuid !== undefined) filters.push(args.folderUuid === undefined ? null : String(args.folderUuid))
+      if (args.workspaceUuid !== undefined) filters.push(String(args.workspaceUuid))
+      const uuids = await callExtension('dmt_Project.getAllProjectsUuid', filters, toolTimeout(args, timeoutMs))
       const list = Array.isArray(uuids) ? uuids.map(String) : []
       if (args.resolveNames === false) return { count: list.length, uuids: list }
       const limit = Number.isFinite(Number(args.limit)) ? Math.max(1, Number(args.limit)) : list.length
@@ -1094,40 +1132,57 @@ async function executeTool(name, rawArgs, timeoutMs) {
       return { count: list.length, resolved: projects.length, projects }
     }
 
-    case 'eda_get_project':
-      return await callExtension('dmt_Project.getCurrentProjectInfo', [], timeoutMs)
+    case 'eda_get_project': {
+      const project = await callExtension('dmt_Project.getCurrentProjectInfo', [], timeoutMs)
+      return project === undefined || project === null
+        ? { project: null, hint: 'No project is open: JLCEDA Pro is on the HOME page. Use eda_list_projects + eda_open_project, or open one in the app.' }
+        : project
+    }
 
     case 'eda_open_project': {
-      let uuid = args.uuid === undefined ? '' : String(args.uuid).trim()
-      const name = args.name === undefined ? '' : String(args.name).trim()
-      let matched = null
-      if (uuid === '') {
-        if (name === '') throw new Error('eda_open_project requires uuid or name')
-        const uuids = await callExtension('dmt_Project.getAllProjectsUuid', [undefined, undefined, undefined], timeoutMs)
-        const candidates = Array.isArray(uuids) ? uuids.map(String) : []
-        const resolved = []
-        for (const candidate of candidates) {
-          try {
-            const info = await callExtension('dmt_Project.getProjectInfo', [candidate], timeoutMs)
-            const record = asRecord(info)
-            const friendly = String(pickValue(record, 'FriendlyName', 'friendlyName', 'Name', 'name') ?? '')
-            resolved.push({ uuid: candidate, friendly })
-          } catch {
-            resolved.push({ uuid: candidate, friendly: '' })
-          }
-        }
-        const exact = resolved.find(item => item.friendly === name)
-        const fuzzy = resolved.find(item => item.friendly.toLowerCase().includes(name.toLowerCase()))
-        matched = exact ?? fuzzy ?? null
-        if (matched === null) {
-          throw new Error('eda_open_project: no project matches "' + name + '"; known names: ' +
-            resolved.map(item => item.friendly || item.uuid).slice(0, 20).join(', '))
-        }
-        uuid = matched.uuid
-      }
-      const opened = await callExtension('dmt_Project.openProject', [uuid], timeoutMs)
+      const resolvedProject = await resolveProjectUuid(args, timeoutMs)
+      const uuid = resolvedProject.uuid
+      const opened = await callExtension('dmt_Project.openProject', [uuid], toolTimeout(args, timeoutMs))
       const current = await callExtension('dmt_Project.getCurrentProjectInfo', [], timeoutMs).catch(() => undefined)
-      return { opened: opened !== false, uuid, matched, current: current === undefined ? null : summarizePrimitive(current) }
+      return { opened: opened !== false, uuid, matched: resolvedProject.matched, current: current === undefined ? null : summarizePrimitive(current) }
+    }
+
+    case 'eda_delete_project': {
+      const resolvedProject = await resolveProjectUuid(args, timeoutMs)
+      const deleted = await callExtension('dmt_Project.deleteProject', [resolvedProject.uuid], toolTimeout(args, timeoutMs))
+      return { deleted: deleted !== false, uuid: resolvedProject.uuid, matched: resolvedProject.matched }
+    }
+
+    case 'eda_modify_project': {
+      const resolvedProject = await resolveProjectUuid(args, timeoutMs)
+      const changes = []
+      if (args.friendlyName !== undefined) {
+        changes.push(['friendlyName', await callExtension('dmt_Project.modifyProjectFriendlyName', [resolvedProject.uuid, String(args.friendlyName)], timeoutMs)])
+      }
+      if (args.description !== undefined) {
+        changes.push(['description', await callExtension('dmt_Project.modifyProjectDescription', [resolvedProject.uuid, String(args.description)], timeoutMs)])
+      }
+      if (changes.length === 0) throw new Error('eda_modify_project requires friendlyName or description')
+      return {
+        ok: changes.every(([, value]) => value !== false),
+        uuid: resolvedProject.uuid,
+        matched: resolvedProject.matched,
+        applied: changes.map(([field, value]) => ({ field, ok: value !== false })),
+      }
+    }
+
+    case 'eda_copy_project': {
+      const source = await resolveProjectUuid({
+        uuid: args.sourceUuid, name: args.sourceName,
+      }, timeoutMs)
+      const uuid = await callExtension('dmt_Project.copyProject', [
+        source.uuid,
+        args.targetTeamUuid === undefined ? undefined : String(args.targetTeamUuid),
+        args.targetFolderUuid === undefined ? undefined : String(args.targetFolderUuid),
+        args.newFriendlyName === undefined ? undefined : String(args.newFriendlyName),
+        args.newName === undefined ? undefined : String(args.newName),
+      ], toolTimeout(args, timeoutMs))
+      return { copied: typeof uuid === 'string' && uuid !== '', sourceUuid: source.uuid, uuid: uuid ?? null }
     }
 
     case 'eda_create_project': {
