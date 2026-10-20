@@ -34,6 +34,7 @@ export const EDA_MCP_API = {
   reconnect: '/api/dsh-eda-mcp/reconnect',
   extensionZip: '/api/dsh-eda-mcp/extension.zip',
   extensionVerify: '/api/dsh-eda-mcp/extension/verify',
+  extensionInfo: '/api/dsh-eda-mcp/extension/info',
   diagnostics: '/api/dsh-eda-mcp/diagnostics',
   selfTest: '/api/dsh-eda-mcp/self-test',
   settingsDescribe: '/api/dsh-eda-mcp/settings/describe',
@@ -88,7 +89,7 @@ function toView(descriptor: SettingsBridgeView): unknown {
 
 export interface EdaMcpRouteDeps {
   getConfig: () => EdaMcpConfig
-  extensionZipPath: string
+  extensionDigestPath: string
   /** Wire version of the bundled extension zip (from jlc-extension/extension.json). */
   extensionVersion: string
   /** Base URL of the download server; override with DSH_EDA_EXTENSION_BASE. */
@@ -185,31 +186,100 @@ export function makeEdaMcpRoutes(deps: EdaMcpRouteDeps): WebRoute[] {
     },
   }
 
-  // The card serves the LOCAL copy on purpose: it works offline and cannot be throttled.
-  // The digest travels with it, and a separate verify route compares it with the served copy
-  // so "is this the same artifact?" has an answer without downloading twice by hand.
+  // The package ships no zip any more (only lib/extension-digest.json), so the card downloads
+  // from the download server. Every served copy is compared against the build-recorded digest
+  // first: a different wire version is refused rather than handed to the user, and a 429 is
+  // reported as throttling instead of looking like a broken artifact.
+  const readExtensionDigest = async (): Promise<{ version: string; file: string; bytes: number; sha256: string } | null> => {
+    try {
+      const parsed = JSON.parse(await readFile(deps.extensionDigestPath, 'utf8')) as {
+        version?: string; file?: string; bytes?: number; sha256?: string
+      }
+      if (typeof parsed.version !== 'string' || typeof parsed.sha256 !== 'string' || typeof parsed.file !== 'string') return null
+      return { version: parsed.version, file: parsed.file, bytes: Number(parsed.bytes ?? 0), sha256: parsed.sha256 }
+    } catch {
+      return null
+    }
+  }
+
   const extensionZip: WebRoute = {
     kind: 'exact',
     path: EDA_MCP_API.extensionZip,
     handler: async (req, res): Promise<void> => {
       if (req.method !== 'GET') return json(res, 405, { ok: false, error: 'method-not-allowed' })
       if (!isLoopbackRequest(req)) return json(res, 403, { ok: false, error: 'forbidden' })
-      let bytes: Buffer
+      const digest = await readExtensionDigest()
+      if (digest === null) {
+        return json(res, 503, { ok: false, error: 'lib/extension-digest.json is missing; run the build before installing the plugin' })
+      }
+      const requested = new URL(req.url ?? '/', 'http://127.0.0.1').searchParams.get('source')
+      const url = extensionDownloadUrl(deps.extensionDownloadBase, digest.version)
+      let response: Response
       try {
-        bytes = await readFile(deps.extensionZipPath)
-      } catch {
-        return json(res, 404, { ok: false, error: 'extension zip missing next to the plugin' })
+        response = await fetch(url, { signal: AbortSignal.timeout(30000) })
+      } catch (error) {
+        return json(res, 502, {
+          ok: false,
+          error: 'could not reach the download server: ' + (error instanceof Error ? error.message : String(error)),
+          url,
+        })
+      }
+      if (!response.ok) {
+        const throttled = response.status === 429
+        return json(res, throttled ? 429 : 502, {
+          ok: false,
+          httpStatus: response.status,
+          url,
+          error: throttled
+            ? 'the download server throttled this IP (5 downloads/min per IP). Wait about a minute and click download again.'
+            : 'the download server answered HTTP ' + response.status,
+        })
+      }
+      const bytes = Buffer.from(new Uint8Array(await response.arrayBuffer()))
+      const servedSha256 = sha256Of(bytes)
+      const verdict = compareDigest(digest.sha256, servedSha256)
+      if (verdict !== 'match') {
+        return json(res, 502, {
+          ok: false,
+          url,
+          verified: verdict,
+          expected: { version: digest.version, sha256: digest.sha256, bytes: digest.bytes },
+          served: { sha256: servedSha256, bytes: bytes.byteLength },
+          error: 'the served zip is not the build this plugin ships (wire version ' + digest.version + '); '
+            + 'refusing to hand out a different version. Re-upload ' + digest.file + ' to the download server.',
+        })
       }
       res.writeHead(200, {
         'content-type': 'application/zip',
-        // Keep the versioned file name the browser saves it as.
-        'content-disposition': 'attachment; filename="' + basename(deps.extensionZipPath) + '"',
+        'content-disposition': 'attachment; filename="' + digest.file + '"',
         'cache-control': 'no-store',
-        'x-extension-version': deps.extensionVersion,
-        'x-extension-sha256': sha256Of(bytes),
         'content-length': String(bytes.byteLength),
+        'x-extension-source': 'server',
+        'x-extension-version': digest.version,
+        'x-extension-sha256': servedSha256,
+        ...(requested === 'local' ? { 'x-extension-note': 'source=local requested; the served copy was verified and used' } : {}),
       })
       res.end(bytes)
+    },
+  }
+
+  const extensionInfo: WebRoute = {
+    kind: 'exact',
+    path: EDA_MCP_API.extensionInfo,
+    handler: async (req, res): Promise<void> => {
+      if (req.method !== 'GET') return json(res, 405, { ok: false, error: 'method-not-allowed' })
+      if (!isLoopbackRequest(req)) return json(res, 403, { ok: false, error: 'forbidden' })
+      const digest = await readExtensionDigest()
+      if (digest === null) return json(res, 503, { ok: false, error: 'lib/extension-digest.json is missing' })
+      json(res, 200, {
+        version: digest.version,
+        file: digest.file,
+        bytes: digest.bytes,
+        sha256: digest.sha256,
+        downloadPath: EDA_MCP_API.extensionZip,
+        serverUrl: extensionDownloadUrl(deps.extensionDownloadBase, digest.version),
+        source: 'server',
+      })
     },
   }
 
@@ -219,28 +289,17 @@ export function makeEdaMcpRoutes(deps: EdaMcpRouteDeps): WebRoute[] {
     handler: async (req, res): Promise<void> => {
       if (req.method !== 'GET') return json(res, 405, { ok: false, error: 'method-not-allowed' })
       if (!isLoopbackRequest(req)) return json(res, 403, { ok: false, error: 'forbidden' })
-      let localBytes: Buffer
-      try {
-        localBytes = await readFile(deps.extensionZipPath)
-      } catch {
-        return json(res, 404, { ok: false, error: 'extension zip missing next to the plugin' })
-      }
-      const localSha256 = sha256Of(localBytes)
-      const url = extensionDownloadUrl(deps.extensionDownloadBase, deps.extensionVersion)
-      const report: Record<string, unknown> = {
-        version: deps.extensionVersion,
-        file: basename(deps.extensionZipPath),
-        local: { bytes: localBytes.byteLength, sha256: localSha256 },
-        url,
-      }
+      const digest = await readExtensionDigest()
+      if (digest === null) return json(res, 503, { ok: false, error: 'lib/extension-digest.json is missing' })
+      const url = extensionDownloadUrl(deps.extensionDownloadBase, digest.version)
+      const report = { version: digest.version, file: digest.file, expected: { bytes: digest.bytes, sha256: digest.sha256 }, url }
       let response: Response
       try {
-        response = await fetch(url, { signal: AbortSignal.timeout(20000) })
+        response = await fetch(url, { signal: AbortSignal.timeout(30000) })
       } catch (error) {
         return json(res, 200, { ...report, verified: 'unverified', error: 'download failed: ' + (error instanceof Error ? error.message : String(error)) })
       }
       if (!response.ok) {
-        // 429 = the server throttles an IP to 5 downloads/min; that is not a checksum problem.
         return json(res, 200, {
           ...report,
           verified: 'unverified',
@@ -250,17 +309,16 @@ export function makeEdaMcpRoutes(deps: EdaMcpRouteDeps): WebRoute[] {
             : 'download failed: HTTP ' + response.status,
         })
       }
-      const remoteBytes = new Uint8Array(await response.arrayBuffer())
-      const remoteSha256 = sha256Of(remoteBytes)
+      const servedBytes = new Uint8Array(await response.arrayBuffer())
+      const servedSha256 = sha256Of(servedBytes)
       return json(res, 200, {
         ...report,
-        remote: { bytes: remoteBytes.byteLength, sha256: remoteSha256 },
-        verified: compareDigest(localSha256, remoteSha256),
+        served: { bytes: servedBytes.byteLength, sha256: servedSha256 },
+        verified: compareDigest(digest.sha256, servedSha256),
       })
     },
   }
-
-  return [test, reconnect, extensionZip, extensionVerify, diagnostics, selfTest]
+  return [test, reconnect, extensionZip, extensionInfo, extensionVerify, diagnostics, selfTest]
 }
 
 export function makeEdaMcpSettingsRoutes(settings: SettingsBridge): WebRoute[] {

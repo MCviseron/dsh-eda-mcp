@@ -47,8 +47,7 @@ pnpm add dsh-eda-mcp            # 或用 Web GUI 的插件管理器安装
 # 重启 DSH
 ```
 
-发布包里已包含 `lib/` 与 `dsh-eda-bridge-extension-<线协议版本>.zip`，**不需要构建工具链**。扩展仍需手动导入
-嘉立创EDA：zip 位于 `node_modules/dsh-eda-mcp/dsh-eda-bridge-extension-<线协议版本>.zip`（也可从设置卡片下载，下载到的文件名自带版本号）。
+发布包里已包含 `lib/` 与 `lib/extension-digest.json`（**不含 zip**），**不需要构建工具链**。扩展 zip 改成**下载获取**：设置卡片（或下面的直链）从下载服务器取回，插件在把文件交给你之前用自带清单校验 sha256 —— 对不上就拒绝发送，不会让你误装成另一个线协议版本。扩展仍需手动导入嘉立创EDA。
 
 直链（不用装包也能下）：
 

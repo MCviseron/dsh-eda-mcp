@@ -28,12 +28,15 @@ export const zh = {
   'settings.reconnectFailed': '重连失败',
   'settings.portLabel': '桥接 WebSocket 端口：39009（固定）',
   'settings.downloadExtension': '下载 JLCEDA 扩展包',
+  'settings.downloadExtensionVersioned': '下载 JLCEDA 扩展包 v{version}',
+  'settings.extensionInfo': '本地 v{version} · {bytes} 字节 · sha256 {hash}',
+  'settings.extensionInfoUnknown': '扩展包信息不可用',
   'settings.verifyExtension': '校验服务器副本',
   'settings.verifyBusy': '校验中…',
   'settings.verifyMatch': '一致：服务器上的 zip 与本地这份逐字节相同（sha256 {hash}）',
   'settings.verifyMismatch': '不一致：服务器那份与本地不同，请重新上传 {hash}',
   'settings.verifyUnverified': '无法校验：{reason}',
-  'settings.installHint': '在嘉立创EDA专业版中：扩展 → 导入 → 选择下载的 zip → 在扩展列表开启本扩展的「允许外部交互」。',
+  'settings.installHint': '点下载会从下载服务器取回与本插件线协议一致的 zip（发送前校验 sha256，不一致则拒绝发送）；在嘉立创EDA专业版中：扩展 → 导入 → 选择该 zip → 在扩展列表开启本扩展的「允许外部交互」。',
 } as const
 
 export const en = {
@@ -66,12 +69,15 @@ export const en = {
   'settings.reconnectFailed': 'Reconnect failed',
   'settings.portLabel': 'Bridge WebSocket port: 39009 (fixed)',
   'settings.downloadExtension': 'Download JLCEDA extension zip',
+  'settings.downloadExtensionVersioned': 'Download JLCEDA extension zip v{version}',
+  'settings.extensionInfo': 'Bundled v{version} · {bytes} bytes · sha256 {hash}',
+  'settings.extensionInfoUnknown': 'Extension package info unavailable',
   'settings.verifyExtension': 'Verify server copy',
   'settings.verifyBusy': 'Verifying…',
   'settings.verifyMatch': 'Match: the served zip is byte-identical to the local one (sha256 {hash})',
   'settings.verifyMismatch': 'Mismatch: the served zip differs — re-upload {hash}',
   'settings.verifyUnverified': 'Could not verify: {reason}',
-  'settings.installHint': 'In JLCEDA Pro: Extensions → Import → select the downloaded zip → enable "Allow external interactions" for this extension.',
+  'settings.installHint': 'Download fetches the zip whose wire version matches this plugin from the download server (sha256 is verified before the file is sent; a mismatch is refused). Then in JLCEDA Pro: Extensions → Import → select that zip → enable "Allow external interactions".',
 } as const
 
 export type EdaMcpKey = keyof typeof zh

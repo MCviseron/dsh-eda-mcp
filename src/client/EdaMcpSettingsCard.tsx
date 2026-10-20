@@ -329,6 +329,8 @@ export function EdaMcpSettingsCard(props: EdaMcpSettingsCardProps) {
   const [notice, setNotice] = useState<{ kind: 'ok' | 'error'; text: string } | undefined>()
   const [verifyingExtension, setVerifyingExtension] = useState(false)
   const [extensionVerdict, setExtensionVerdict] = useState<{ kind: 'ok' | 'error'; text: string } | undefined>()
+  const [extensionInfo, setExtensionInfo] = useState<{ version: string; bytes: number; sha256: string } | undefined>()
+
 
   const verifyExtension = async (): Promise<void> => {
     if (verifyingExtension) return
@@ -491,14 +493,21 @@ export function EdaMcpSettingsCard(props: EdaMcpSettingsCardProps) {
 
         <p style={{ ...hintStyle, margin: '8px 0 0' }}>{t('settings.portLabel')}</p>
 
-        <Field label={t('settings.downloadExtension')} hint={t('settings.installHint')}>
+        <Field
+          label={extensionInfo === undefined
+            ? t('settings.downloadExtension')
+            : t('settings.downloadExtensionVersioned').replace('{version}', extensionInfo.version)}
+          hint={t('settings.installHint')}
+        >
           <a
             href="/api/dsh-eda-mcp/extension.zip"
             // No download name: the server sends the versioned file name, so the
             // saved copy always states which build it is.
             style={{ ...secondaryButtonStyle, textDecoration: 'none', display: 'inline-flex', width: 'fit-content' }}
           >
-            {t('settings.downloadExtension')}
+            {extensionInfo === undefined
+              ? t('settings.downloadExtension')
+              : t('settings.downloadExtensionVersioned').replace('{version}', extensionInfo.version)}
           </a>
           <button
             type="button"
@@ -508,6 +517,12 @@ export function EdaMcpSettingsCard(props: EdaMcpSettingsCardProps) {
           >
             {verifyingExtension ? t('settings.verifyBusy') : t('settings.verifyExtension')}
           </button>
+          {extensionInfo !== undefined
+            ? <p style={{ ...hintStyle, margin: '6px 0 0' }}>{t('settings.extensionInfo')
+                .replace('{version}', extensionInfo.version)
+                .replace('{bytes}', String(extensionInfo.bytes))
+                .replace('{hash}', extensionInfo.sha256.slice(0, 16) + '…')}</p>
+            : null}
           {extensionVerdict !== undefined
             ? <p role="status" style={{ ...hintStyle, margin: '6px 0 0', color: extensionVerdict.kind === 'ok' ? undefined : '#c0392b' }}>{extensionVerdict.text}</p>
             : null}

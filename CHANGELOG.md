@@ -1,5 +1,20 @@
 # Changelog
 
+## 未发布（unreleased）
+
+### 扩展包改为**从服务器下载**（发布包不再自带 zip）
+
+按你的要求，本地不再保留副本，下载一律走服务器，同时保住"发出去的一定是对的那一版"：
+
+- `build.mjs` 现在生成 `lib/extension-digest.json`（version / file / bytes / sha256），发布包 `files` **移除** `dsh-eda-bridge-extension-*.zip`（实测 tarball 只剩 170 B 的清单，49 个文件，不再有 zip）。
+- `GET /api/dsh-eda-mcp/extension.zip`：从下载服务器取回 → 与清单 sha256 比对 → **一致才发**；不一致返回 502 并说明"拒绝发送不同版本"；429 报"限流，不是文件坏了"；服务器不可达报 502 带地址。响应头带 `x-extension-source: server`、`x-extension-version`、`x-extension-sha256`。
+- 设置卡片：按钮文案带版本（「下载 JLCEDA 扩展包 v0.4.9」），下面显示 `本地 v0.4.9 · 9827 字节 · sha256 …`（来自新增的本地路由 `/extension/info`，不联网）；「校验服务器副本」按钮保留。
+- `eda_extension_package` 也改为以清单为准：不再需要本地 zip，`download:true` 校验清单后落盘；机器上若恰好有 zip 会额外报告它。
+- 第 11 套单测重写：真实本地 HTTP 服务模拟**一致 / 不同版本 / 429** 三种响应，断言一致才发出、不一致 502 且**不发任何字节**、429 如实上报；并覆盖 `/extension/info` 不联网。
+
+代价（明确记录）：**离线安装不再可能**，且服务器那份 zip 一旦与 `lib/extension-digest.json` 不同步，下载会被拒绝——这时必须重新上传构建产物。
+
+
 ## 1.1.1 — 2026-10-21
 
 ### 设置卡片：下载仍是本地那份，但**能校验服务器副本**

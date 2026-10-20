@@ -166,21 +166,6 @@ function resolveExtensionVersion(): string {
   }
 }
 
-function resolveExtensionZipPath(): string {
-  const plain = fileURLToPath(new URL('../dsh-eda-bridge-extension.zip', import.meta.url))
-  try {
-    const manifest = JSON.parse(readFileSync(fileURLToPath(new URL('../jlc-extension/extension.json', import.meta.url)), 'utf8')) as { version?: string }
-    const version = typeof manifest.version === 'string' ? manifest.version : ''
-    if (version !== '') {
-      const versioned = fileURLToPath(new URL('../dsh-eda-bridge-extension-' + version + '.zip', import.meta.url))
-      if (existsSync(versioned)) return versioned
-    }
-  } catch {
-    // Bundle-only installs may lack the manifest; the plain name is the fallback.
-  }
-  return plain
-}
-
 /** Bridge script path, resolved once. */
 const BRIDGE_PATH = fileURLToPath(BRIDGE_URL)
 
@@ -300,7 +285,7 @@ let current: () => EdaMcpConfig = () => unwrapConfig(config ?? {})
   ctx.effect(() => {
     const disposers = makeEdaMcpRoutes({
       getConfig: () => current(),
-      extensionZipPath: resolveExtensionZipPath(),
+      extensionDigestPath: fileURLToPath(new URL('../lib/extension-digest.json', import.meta.url)),
       extensionVersion: resolveExtensionVersion(),
       extensionDownloadBase: process.env.DSH_EDA_EXTENSION_BASE ?? 'http://159.75.130.207/eda/',
       reconnect: remountClient,

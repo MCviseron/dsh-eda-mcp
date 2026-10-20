@@ -1,5 +1,6 @@
 import { build } from 'esbuild'
 import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { cp, mkdir, readdir, readFile, rm, utimes, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -154,7 +155,21 @@ execFileSync('powershell', [
 ], { stdio: 'inherit' })
 await rm(stage, { recursive: true, force: true })
 
-console.log('built lib/index.js, lib/client.js, lib/bridge.mjs, ' + zipVersioned)
+// The package no longer ships the zip: the settings card downloads it from the download server.
+// That is only safe if the expected bytes are known locally, so the build records the digest of
+// the artefact it just produced. A served copy is compared against this manifest, and a mismatch
+// is refused instead of silently handing out a different wire version.
+const zipBytes = await readFile(zipVersioned)
+const zipSha256 = createHash('sha256').update(zipBytes).digest('hex')
+await mkdir('lib', { recursive: true })
+await writeFile(join('lib', 'extension-digest.json'), JSON.stringify({
+  version: extensionVersion,
+  file: zipVersioned,
+  bytes: zipBytes.byteLength,
+  sha256: zipSha256,
+}, null, 2) + '\n', 'utf8')
+
+console.log('built lib/index.js, lib/client.js, lib/bridge.mjs, lib/extension-digest.json, ' + zipVersioned)
 
 // Reproducibility: drop the build-machine-specific module comments from every
 // bundle (see stripBuildComments) so two machines produce identical bytes.

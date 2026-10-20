@@ -36,10 +36,11 @@ pnpm add dsh-eda-mcp            # or use the plugin manager in the Web GUI
 # restart DSH
 ```
 
-The published package already contains `lib/` and `dsh-eda-bridge-extension-<version>.zip`, so no build
-toolchain is needed. The extension still has to be imported into JLCEDA Pro by hand — the zip
-sits at `node_modules/dsh-eda-mcp/dsh-eda-bridge-extension-<version>.zip` (or download it from the
-settings card).
+The published package ships `lib/` and `lib/extension-digest.json` (no zip), so no build toolchain
+is needed. The extension zip is **downloaded, not bundled**: the settings card (or the link below)
+fetches it from the download server and the plugin verifies the sha256 against its own manifest
+before the file is handed to you — a served copy that does not match is refused instead of being
+installed as a different wire version. Import it into JLCEDA Pro by hand.
 
 Direct links (no package install needed):
 

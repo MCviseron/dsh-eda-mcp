@@ -2376,46 +2376,36 @@ async function executeTool(name, rawArgs, timeoutMs) {
       }], timeoutMs)
 
     case 'eda_extension_package': {
-      // Two copies of the same artifact exist: the zip inside this npm package and the one
-      // on the download server. Nobody could tell whether they match, so this tool reports
-      // the local digest and, with download:true, fetches the served copy and compares the
-      // two byte for byte. A mismatch is never written to disk.
-      const manifestCandidates = [
-        join(packageRoot(), 'jlc-extension', 'extension.json'),
-        join(packageRoot(), 'dsh-eda-bridge-extension.zip'),
-      ]
-      let version = VERSION
+      // The package ships only lib/extension-digest.json (no zip): the artifact itself lives on
+      // the download server. The expected digest comes from that manifest, so a served copy can
+      // be verified even on a machine that has never had a local zip.
+      const manifestPath = join(packageRoot(), 'lib', 'extension-digest.json')
+      let expected: { version?: string; file?: string; bytes?: number; sha256?: string } = {}
       try {
-        const manifest = JSON.parse(await readFile(manifestCandidates[0], 'utf8')) as { version?: string }
-        if (typeof manifest.version === 'string' && manifest.version !== '') version = manifest.version
-      } catch { /* keep the bridge VERSION */ }
-      const localCandidates = [
-        join(packageRoot(), extensionZipName(version)),
-        join(packageRoot(), 'dsh-eda-bridge-extension.zip'),
-      ]
-      let localPath = ''
-      for (const candidate of localCandidates) {
-        if (existsSync(candidate)) { localPath = candidate; break }
+        expected = JSON.parse(await readFile(manifestPath, 'utf8')) as typeof expected
+      } catch {
+        expected = {}
       }
-      if (localPath === '') {
-        throw new Error('eda_extension_package: no extension zip next to the plugin (looked for ' + localCandidates.join(', ') + ')')
-      }
-      const localBytes = await readFile(localPath)
-      const localSha256 = sha256Of(localBytes)
+      const version = typeof expected.version === 'string' && expected.version !== '' ? expected.version : VERSION
+      const expectedSha256 = typeof expected.sha256 === 'string' ? expected.sha256 : ''
+      const localPath = join(packageRoot(), extensionZipName(version))
+      const localSource = existsSync(localPath) ? localPath : null
+      const localBytes = localSource === null ? null : await readFile(localSource)
       const base = typeof args.base === 'string' && args.base !== ''
         ? args.base
         : (process.env.DSH_EDA_EXTENSION_BASE ?? 'http://159.75.130.207/eda/')
       const url = extensionDownloadUrl(base, version)
       const report = {
         version,
-        local: { path: localPath, bytes: localBytes.byteLength, sha256: localSha256 },
+        expected: { bytes: Number(expected.bytes ?? 0), sha256: expectedSha256, manifest: manifestPath },
+        localZip: localSource === null
+          ? null
+          : { path: localSource, bytes: localBytes!.byteLength, sha256: sha256Of(localBytes!) },
         url,
       }
       if (args.download !== true) return report
       const response = await fetch(url, { signal: AbortSignal.timeout(30000) })
       if (!response.ok) {
-        // 429 is the download server's rate limit (5 req/min per IP), not a broken artifact:
-        // say so, otherwise the caller retries in a loop and never succeeds.
         const throttled = response.status === 429
         return {
           ...report,
@@ -2428,10 +2418,10 @@ async function executeTool(name, rawArgs, timeoutMs) {
       }
       const remoteBytes = new Uint8Array(await response.arrayBuffer())
       const remoteSha256 = sha256Of(remoteBytes)
-      const verdict = compareDigest(localSha256, remoteSha256)
+      const verdict = compareDigest(expectedSha256, remoteSha256)
       const result: Record<string, unknown> = {
         ...report,
-        remote: { url, bytes: remoteBytes.byteLength, sha256: remoteSha256 },
+        served: { url, bytes: remoteBytes.byteLength, sha256: remoteSha256 },
         verified: verdict,
       }
       if (verdict === 'match') {
@@ -2441,9 +2431,11 @@ async function executeTool(name, rawArgs, timeoutMs) {
         await writeFile(savedPath, remoteBytes)
         result.savedPath = savedPath
         result.next = 'In JLCEDA Pro: 扩展 → 导入扩展 → select this zip → restart the application (not a reload).'
+      } else if (verdict === 'mismatch') {
+        result.next = 'The served copy differs from the digest this plugin was built with (wire version ' + version +
+          '). Do not import it: re-upload ' + extensionZipName(version) + ' from the build output to the download server.'
       } else {
-        result.next = 'The served copy differs from the one this plugin ships. Do not import it: re-upload ' +
-          extensionZipName(version) + ' from the plugin directory to the download server.'
+        result.next = 'No expected digest in ' + manifestPath + '; rebuild the plugin so it records one.'
       }
       return result
     }
