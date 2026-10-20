@@ -1,0 +1,23 @@
+chore(release): v0.7.2
+
+Closes the 15 issues a real 45-net schematic run exposed (13 fixed, 2 recorded as
+application limits) and turns the working standard into a registered DSH skill.
+
+Also in this release:
+- createNetLabel probe cached per session; eda_place_net_labels batch placement
+- eda_get_net_labels lists attribute labels AND fallback texts
+- honest failures: eda_copy_project raw result, opened verified from the active
+  project, import uuid-collision report, delete kinds for netport/netflag/netlabel
+- eda_get_pins returns pinName/pinNumber in one call; eda_move_component
+- eda_run_drc per-problem entries; netlist parsed; BOM decoded from UTF-16
+- auto layout/routing disabled unless force:true and allowAutoLayoutRouting is on,
+  with a seven-step refusal that tells the agent what to do instead
+- eda_workflow_guide tool, eda_list_api_methods, zoom_to_fit clamped to the frame
+- skill jlceda-schematic-workflow registered via ctx.skills.registerProvider:
+  9262-char / 12-section project playbook (project, schematic, PCB, rules,
+  troubleshooting, scripts, delivery checklist) generated into docs from one module
+- contract-check now fails on duplicate tool declarations (that bug removed the
+  whole plugin from a session), plus a skills test suite
+
+Wire contract unchanged (0.4.0): installed extensions need no re-import.
+101 tools, 6 test suites.

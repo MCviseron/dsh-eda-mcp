@@ -1,6 +1,6 @@
 {
   "name": "dsh-eda-mcp",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "description": "DeepSeek Harness (DSH) plugin — connects DSH to JLCEDA Pro (EasyEDA Pro) via a local MCP bridge and draws schematics through the JLCEDA extension API.",
   "license": "Apache-2.0",
   "author": {
