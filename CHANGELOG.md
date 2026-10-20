@@ -1,6 +1,6 @@
 # Changelog
 
-## 未发布（unreleased）
+## 1.0.2 — 2026-10-20
 
 ### 覆铜调查结案（扩展 0.4.7 / 0.4.8 真机）
 
@@ -19,6 +19,15 @@
 **因此撤掉 `pcb_create_copper_fill`**：它在这台构建上必然失败，留着就是给调用方挖坑。白名单里的 `pcb_MathPolygon.createComplexPolygon` 与 `pcb_PrimitiveFill.*` 保留（换构建可能有效），但不再包装成工具。
 
 **正解**：覆铜在界面手工铺（GND → 顶层+底层 → 重新铺铜）；`eda_design_audit` 会持续把缺覆铜记成 `copper-pour` warn，`eda_delivery_checklist` 也会带上它。
+
+
+### 通知堆叠 / 粘连（扩展 0.4.9）
+
+屏幕实测：三条提示叠在画布上（"未连接…点击右侧按钮"、"扩展已加载 v0.4.8"、"已连接；端口 39009"），且"未连接"那条永不消失。
+
+- 根因：`showToastMessage` 的 `timer: 0` 语义是**永不自动隐藏**，而 `SYS_Message` **没有任何隐藏或替换 API**；连接成功时也没有人撤掉它。
+- 修法：未连接提示改成 `showFollowMouseTip(tip, 8000)`，并在 WebSocket `onopen` 里 `removeFollowMouseTip` 显式撤掉；`showToast` 一律传有限时长（默认 4 s）；文案改为"菜单 DSH MCP → 连接 DSH MCP 服务器"（跟随提示没有按钮）。
+- 线协议 **0.4.8 → 0.4.9**（纯 UI 层）。
 
 ## 1.0.1 — 2026-10-20
 
