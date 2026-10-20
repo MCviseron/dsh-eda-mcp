@@ -2029,8 +2029,16 @@ async function executeTool(name, rawArgs, timeoutMs) {
     case 'eda_auto_route': {
       // Standing rule from the user: do not auto-lay-out or auto-route unless asked.
       if (ALLOW_AUTO_LAYOUT !== true && args.force !== true) {
-        throw new Error(name + ' is disabled (settings allowAutoLayoutRouting=false / env DSH_EDA_ALLOW_AUTO_LAYOUT). ' +
-          'Place parts on the grid and route by hand, or pass force:true only when the user explicitly asked for automatic layout/routing.')
+        throw new Error(name + ' is disabled by policy (settings allowAutoLayoutRouting=false, env DSH_EDA_ALLOW_AUTO_LAYOUT). Do NOT retry with force:true unless the user explicitly asked for automatic layout/routing.',
+          '',
+          'Do this instead, in order:',
+          '1. eda_get_active_document — make sure a schematic page is active (eda_open_document if not).',
+          '2. eda_get_page_info — read the A4 frame and the safe areas before placing anything.',
+          '3. eda_get_components — see what is already placed and where (x/y + bounding boxes) to avoid overlap.',
+          '4. Place or move parts yourself on a 10-unit grid: eda_place_component for new ones, eda_move_component (keeps designator/value) to re-grid existing ones. Signal flow left to right, power rails on top, ground at the bottom, >=20 units between symbols for wires and labels.',
+          '5. Connect with eda_draw_wire for local nets; for anything that spans the sheet use eda_place_net_port or a net label (a wire net name is overridden by connectivity once an endpoint touches a pin).',
+          '6. Verify: eda_export_netlist (every net should have >=2 endpoints) and eda_run_drc (per-problem entries). For a visual check export the canvas to an image and look at it, rather than letting EDA rearrange the sheet.',
+          '7. Call eda_workflow_guide for the full standard.',)
       }
       const payload = Array.isArray(args.uuids) ? { uuids: args.uuids.map(String) } : undefined
       return await callExtension(name === 'eda_auto_layout' ? 'sch_Document.autoLayout' : 'sch_Document.autoRouting', [payload], toolTimeout(args, timeoutMs))

@@ -2,10 +2,11 @@
 
 这份文档与插件里的两份实现同源：系统提示的精简版（src/guidance.ts）和 eda_workflow_guide 工具的完整版（src/bridge/workflow-guide.ts）。
 
-DSH 目前没有对插件开放的 skill 注册接口，因此「把工作规范注册给 agent」用两条通道实现：
+本规范通过 **三条通道** 触达 agent（内容同源）：
 
-1. 系统提示段（announceToAgent 开启时每轮注入）：栅格对齐、信号流向、禁止自动布局/布线、网络标签降级行为、引脚一次拿全、跨区域用网络端口。
-2. eda_workflow_guide 工具：按需拉取完整手册（不占用每轮上下文）。
+1. **DSH 技能** `jlceda-schematic-workflow`（`ctx.skills.registerProvider`）：出现在会话技能目录里，用 `skill` 工具按需加载。
+2. 系统提示段（announceToAgent 开启时每轮注入）：栅格对齐、信号流向、禁止自动布局/布线、网络标签降级行为、引脚一次拿全、跨区域用网络端口。
+3. `eda_workflow_guide` 工具：按需拉取完整手册（不占用每轮上下文）。
 
 ## 1. 布局
 
@@ -43,3 +44,9 @@ DSH 目前没有对插件开放的 skill 注册接口，因此「把工作规范
 - lceda-pro.exe 直接 spawn 会立刻退出，eda_launch 在 Windows 上固定走 explorer.exe 交接。
 - 命令行带工程路径被应用忽略：eda_launch({ project }) 只保证把参数传下去，打开工程请用 eda_open_project。
 - 导入 .epro2 会原样复制内部 uuid（schematic/page/pcb），可能与源工程冲突；eda_import_project 会做一次碰撞检查并在 collisions 里报告（checkCollisions:false 可关）。
+## 6. 作为 DSH 技能注册
+
+插件通过 `ctx.skills.registerProvider()` 把本规范注册成技能 **`jlceda-schematic-workflow`**（rank 500，`TRIGGER when` / `DO NOT TRIGGER` 齐全），与本地/项目技能一起出现在会话技能目录，用 `skill` 工具按需加载；正文与本文件同源（`src/bridge/workflow-guide.ts` + `src/skills.ts`）。
+
+- 需要**宿主重启**（插件重新加载）后才出现；桥接 `reconnect` 不会刷新技能目录。
+- 旧版宿主没有 skills 服务时自动跳过，不影响其它功能。

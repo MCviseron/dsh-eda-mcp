@@ -2,6 +2,14 @@
 
 ## 未发布（unreleased）
 
+
+### 技能（skill）正式注册 + 自动布局拒绝后的引导
+
+- **技能通过 `ctx.skills.registerProvider()` 注册**（不是只有系统提示）：新增 `src/skills.ts`，提供 `jlceda-schematic-workflow` 技能（kebab-case、rank 500 优先于用户根 400、`TRIGGER when` / `DO NOT TRIGGER` 齐全，正文 2513 字符 = 布局规范 + 网络/标签规则 + 批量与超时 + 失败先看返回值）。宿主没有 skills 服务时（旧版本）自动跳过，不报错。
+- 新增 `test/skills.test.ts`（11 条断言：provider 名、单一技能、kebab-case、可被模型/用户调用、trigger 文案、rank、正文长度与关键段落、未知技能返回 undefined），已加入 `pnpm test`。
+- **`eda_auto_layout` / `eda_auto_route` 的拒绝消息改成可执行的引导**：不再只说"被禁用"，而是列出 7 步替代流程（确认活动原理图 → 读图框安全区 → 盘已有器件 → 10 单位栅格 `eda_place_component`/`eda_move_component` → `eda_draw_wire` 局部连线 + 跨区域用网络端口/标签 → `eda_export_netlist` + `eda_run_drc` 校验并导出图片自查 → `eda_workflow_guide`），并明确"除非用户明确要求，不要用 force:true 重试"。
+
+注：技能注册在**宿主重启**后生效（插件重新加载），桥接 reconnect 不够。
 ### 原理图批量落地暴露的 15 个问题：修了 13 个，2 个只能记为限制
 
 全部来自一次真实的 45 网络原理图绘制（EDA 3.2.186、已登录、半离线）。**本轮没有改动扩展白名单，线协议仍是 0.4.0，已装扩展无需重导。**

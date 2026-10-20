@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url'
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { EDA_MCP_GUIDANCE, SECTION_ORDER } from './guidance.ts'
+import { createEdaSkillProvider } from './skills.ts'
 import { makeEdaMcpRoutes, makeEdaMcpSettingsRoutes, type SettingsBridge } from './routes.ts'
 import { resolveBridgeRuntime } from './node-runtime.ts'
 import { BridgeDiagnostics } from './bridge-diagnostics.ts'
@@ -300,6 +301,18 @@ export function apply(ctx: Context, config?: EdaMcpConfig): void {
       const disposers = makeEdaMcpSettingsRoutes(sctx.settings as unknown as SettingsBridge).map(route => ctx.webServer.register(route))
       return () => { for (const dispose of disposers) dispose() }
     }, 'eda-mcp: settings bridge')
+  })
+
+  // Register the schematic standard as a DSH skill, so it lands in the session skill
+  // catalog next to local/project skills and loads on demand with the `skill` tool.
+  // Structural typing + a runtime guard keeps older hosts (no skills service) working.
+  ctx.inject(['skills'], (sctx) => {
+    const register = (sctx as unknown as {
+      skills?: { registerProvider?: (factory: (control: unknown) => unknown) => () => void }
+    }).skills?.registerProvider
+    if (typeof register !== 'function') return
+    const dispose = register(() => createEdaSkillProvider())
+    return () => { dispose() }
   })
 
   const sync = (): void => {
