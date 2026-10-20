@@ -17,7 +17,7 @@ import {
   assertNetName, checkNetName, checkTrackWidth, checkVia, classifyNet, milToMm, suggestTrackWidthMil,
 } from './design-rules.ts'
 
-const VERSION = '0.3.9'
+const VERSION = '0.4.0'
 const WS_PORT = Number(process.env.DSH_EDA_MCP_WS_PORT ?? 39009)
 const WS_HOST = '127.0.0.1'
 const ALLOW_RAW_API = (process.env.DSH_EDA_MCP_ALLOW_RAW_API ?? '1') !== '0'
@@ -249,7 +249,7 @@ const TOOLS = [
   { name: 'eda_copy_project', description: 'Copy a project (dmt_Project.copyProject), optionally into another team/folder and with a new friendly name; returns the new uuid.', inputSchema: objectSchema({ sourceUuid: { type: 'string' }, sourceName: { type: 'string' }, targetTeamUuid: { type: 'string' }, targetFolderUuid: { type: 'string' }, newFriendlyName: { type: 'string' }, newName: { type: 'string' } }) },
   { name: 'eda_close_document', description: 'Close one editor tab (dmt_EditorControl.closeDocument).', inputSchema: objectSchema({ tabId: { type: 'string' } }, ['tabId']) },
   { name: 'eda_export_project', description: 'Export a project file (sys_FileManager.getProjectFile / getProjectFileByProjectUuid). With outPath the bridge writes the bytes to disk and returns the path; without it the base64 payload is returned only when inline=true.', inputSchema: objectSchema({ uuid: { type: 'string' }, fileName: { type: 'string' }, fileType: { type: 'string', enum: ['epro', 'epro2'] }, outPath: { type: 'string' }, inline: { type: 'boolean' } }) },
-  { name: 'eda_import_project', description: 'Import a local project file (.eprj2/.epro/...) into the workspace (sys_FileManager.importProjectByProjectFile). Returns the import result and, when open=true, opens the imported project.', inputSchema: objectSchema({ path: { type: 'string' }, fileType: { type: 'string' }, open: { type: 'boolean' } }, ['path']) },
+  { name: 'eda_import_project', description: 'Import a local project file (.eprj2/.epro/...) into a team (sys_FileManager.importProjectByProjectFile with a saveTo target). teamUuid is required in local mode: without a target team the app imports nothing. Returns whether the import actually landed.', inputSchema: objectSchema({ path: { type: 'string' }, teamUuid: { type: 'string' }, folderUuid: { type: 'string' }, friendlyName: { type: 'string' }, fileType: { type: 'string' }, open: { type: 'boolean' } }, ['path']) },
   { name: 'eda_close', description: 'Close JLCEDA Pro gracefully (taskkill /T on Windows, SIGTERM elsewhere), then force-kill if it is still running after waitMs (default 8000). Returns the remaining process count.', inputSchema: objectSchema({ force: { type: 'boolean' }, waitMs: { type: 'integer' } }) },
   { name: 'eda_launch', description: 'Launch JLCEDA Pro (EasyEDA Pro), optionally opening a .eprj2/.eprj project, then wait until the bridge extension connects. The executable is resolved from DSH_EDA_EXECUTABLE/JLCEDA_EXECUTABLE, the registry handler the installer registered, conventional install directories, then PATH - so it works on any machine without configuration.', inputSchema: objectSchema({ project: { type: 'string' }, executable: { type: 'string' }, waitForExtension: { type: 'boolean' }, timeoutMs: { type: 'integer' } }) },
   { name: 'eda_get_page_info', description: 'Return the current schematic page, the A4 frame range, the title-block keep-out range, and the recommended safe placement areas. All coordinates are MCP units (0.01 inch).', inputSchema: objectSchema({ paper: { type: 'string' } }) },
@@ -1112,18 +1112,43 @@ async function executeTool(name, rawArgs, timeoutMs) {
       try { bytes = await readFile(path) } catch {
         throw new Error('eda_import_project: cannot read "' + path + '"')
       }
+      // importProjectByProjectFile only lands anything when the target team is given
+      // (saveTo); without it the app answers undefined and nothing is imported.
+      let teamUuid = args.teamUuid === undefined ? '' : String(args.teamUuid).trim()
+      if (teamUuid === '') {
+        const current = await callExtension('dmt_Team.getCurrentTeamInfo', [], timeoutMs).catch(() => undefined)
+        teamUuid = String(pickValue(asRecord(current), 'uuid', 'Uuid') ?? '')
+      }
+      if (teamUuid === '') {
+        throw new Error('eda_import_project needs teamUuid: the app imports nothing without a target team. Use a team uuid from eda_list_teams (local mode reports project directories) or the teamUuid of an existing project (eda_list_projects).')
+      }
+      const saveTo: Record<string, unknown> = { operation: 'New Project', newProjectOwnerTeamUuid: teamUuid }
+      if (args.folderUuid !== undefined) saveTo.newProjectOwnerFolderUuid = String(args.folderUuid)
+      if (args.friendlyName !== undefined) saveTo.newProjectFriendlyName = String(args.friendlyName)
       const imported = await callExtension('dsh.internal.importProjectFile', [
         bytes.toString('base64'),
         basename(path),
         args.fileType === undefined ? undefined : String(args.fileType),
-        undefined,
+        saveTo,
       ], toolTimeout(args, timeoutMs))
-      const uuid = typeof imported?.uuid === 'string' ? imported.uuid : (typeof imported === 'string' ? imported : undefined)
+      const raw = imported?.result ?? imported
+      const uuid = typeof raw === 'string' ? raw : (typeof raw?.uuid === 'string' ? raw.uuid : undefined)
+      const landed = raw !== null && raw !== undefined
       let opened = false
       if (args.open === true && uuid !== undefined) {
         try { opened = (await callExtension('dmt_Project.openProject', [uuid], timeoutMs)) !== false } catch { opened = false }
       }
-      return { ok: true, imported: true, name: basename(path), size: bytes.length, uuid: uuid ?? null, opened, result: imported }
+      return {
+        ok: landed,
+        imported: landed,
+        name: basename(path),
+        size: bytes.length,
+        teamUuid,
+        uuid: uuid ?? null,
+        opened,
+        result: raw ?? null,
+        hint: landed ? null : 'The app returned nothing: the import did not create a project. That means this build ignores the saveTo target (same limitation as createProject), so import cannot be used to create projects here.',
+      }
     }
 
     case 'eda_close': {

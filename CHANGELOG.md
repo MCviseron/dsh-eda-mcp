@@ -155,6 +155,21 @@
 - `summarizePrimitive` 把团队/工程/文件夹记录摘要成 **空对象** → 这些结构改为**原样返回**（字段名不稳定：`uuid`/`friendlyName`/`teamUuid`）。
 - `resolveProjectUuid` 与 `eda_list_projects` 在无过滤时只查一次 `getAllProjectsUuid()`（本地模式恒为空）→ 现在**遍历团队聚合**，按名字打开才能用。
 - `eda_list_folders` 传目录路径时应用抛裸 `TypeError: …rootList` → 包装成可读错误并提示该传什么。
+
+### 线协议 0.3.9 → 0.4.0：导出/导入真机验证 + zip 包名带版本号
+
+真机（扩展 0.3.9）：
+
+| 调用 | 结果 |
+|---|---|
+| `eda_export_project({ outPath })` | ✅ **成功**：1.9 s 写出 1 056 450 字节，应用返回 `示例工程_快速入门.epro2` |
+| `eda_import_project({ path })` | ⚠️ 返回「imported」但**没有新工程**：`importProjectByProjectFile` 的第 4 个参数 `saveTo`（目标团队）没传，应用直接返回 undefined |
+
+修复：
+
+- `eda_import_project` 现在**必填 `teamUuid`**（可选 `folderUuid` / `friendlyName`），组装成 `saveTo: { operation: 'New Project', newProjectOwnerTeamUuid, newProjectOwnerFolderUuid?, newProjectFriendlyName? }`；拿不到目标团队就直接报错说明原因，不再假报成功。
+- 扩展助手改为返回 `{ result }`，桥接据此判断**是否真的导入**（`imported` 不再恒为 true），并给出 `hint` 说明该构建忽略 saveTo。
+- **zip 包名带版本号**：构建产物为 `dsh-eda-bridge-extension-<版本>.zip`，同时保留 `dsh-eda-bridge-extension.zip` 作为同名别名（内容一致，脚本/下载路由/文档仍可用）；`.gitignore` 与 `package.json files` 同步。
 ## 0.6.2
 
 > **已发布到 npm**（`dsh-eda-mcp@0.6.2`，首个版本）。下面 0.6.1 的内容从未发布过，同批一起带上。

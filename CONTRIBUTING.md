@@ -33,7 +33,8 @@ packaged with PowerShell `Compress-Archive`.
 pnpm install
 pnpm typecheck   # tsc --noEmit
 pnpm test        # unit tests + the seam compatibility test
-pnpm build       # lib/*.js, lib/bridge.mjs, lib/client.js, dsh-eda-bridge-extension.zip
+pnpm build       # lib/*.js, lib/bridge.mjs, lib/client.js, dsh-eda-bridge-extension-<version>.zip
+                 # (+ dsh-eda-bridge-extension.zip as a stable-name alias of the same build)
 pnpm check       # all three, in that order
 pnpm docs        # regenerate docs/tools.md from the built bridge
 pnpm seam-check  # assert the plugin's DSH contracts against another version line

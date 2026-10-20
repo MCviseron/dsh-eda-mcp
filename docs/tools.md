@@ -20,7 +20,7 @@ Design limits enforced by these tools (track widths, via sizes, net naming) are 
 | `eda_copy_project` | Copy a project (dmt_Project.copyProject), optionally into another team/folder and with a new friendly name; returns the new uuid. | `sourceUuid?: string, sourceName?: string, targetTeamUuid?: string, targetFolderUuid?: string, newFriendlyName?: string, newName?: string` |
 | `eda_close_document` | Close one editor tab (dmt_EditorControl.closeDocument). | `tabId: string` |
 | `eda_export_project` | Export a project file (sys_FileManager.getProjectFile / getProjectFileByProjectUuid). With outPath the bridge writes the bytes to disk and returns the path; without it the base64 payload is returned only when inline=true. | `uuid?: string, fileName?: string, fileType?: string, outPath?: string, inline?: boolean` |
-| `eda_import_project` | Import a local project file (.eprj2/.epro/...) into the workspace (sys_FileManager.importProjectByProjectFile). Returns the import result and, when open=true, opens the imported project. | `path: string, fileType?: string, open?: boolean` |
+| `eda_import_project` | Import a local project file (.eprj2/.epro/...) into a team (sys_FileManager.importProjectByProjectFile with a saveTo target). teamUuid is required in local mode: without a target team the app imports nothing. Returns whether the import actually landed. | `path: string, teamUuid?: string, folderUuid?: string, friendlyName?: string, fileType?: string, open?: boolean` |
 
 ## Workspace
 

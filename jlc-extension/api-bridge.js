@@ -365,10 +365,12 @@ function dshEdaMcpStatus() {
       var impBytes = new Uint8Array(impBinary.length);
       for (var impIndex = 0; impIndex < impBinary.length; impIndex += 1) impBytes[impIndex] = impBinary.charCodeAt(impIndex);
       var impFile = new File([impBytes], String(impArgs[1] || 'import.eprj2'), { type: 'application/octet-stream' });
+      // saveTo (4th argument) is what gives the import a target team; without it the
+      // app answers undefined and imports nothing.
       var impResult = await eda.sys_FileManager.importProjectByProjectFile(
         impFile, optional(impArgs[2]), undefined, optional(impArgs[3])
       );
-      return toJsonable(impResult === undefined ? { imported: true } : impResult);
+      return { result: impResult === undefined ? null : toJsonable(impResult) };
     }
     // Internal helper: build an IPCB_Polygon from a raw source array and create
     // a PCB region (used for the board outline).

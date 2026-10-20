@@ -49,6 +49,7 @@
     "test",
     "docs",
     "jlc-extension",
+    "dsh-eda-bridge-extension-*.zip",
     "dsh-eda-bridge-extension.zip",
     "cordis.patch.yml",
     "CHANGELOG.md",

@@ -71,7 +71,7 @@ The plugin now resolves a real Node executable (`src/node-runtime.ts`), in order
 
 ### 2. Import the JLCEDA Pro bridge extension
 
-Build produces `dsh-eda-bridge-extension.zip`. In JLCEDA Pro:
+Build produces `dsh-eda-bridge-extension-<version>.zip` (plus a `dsh-eda-bridge-extension.zip` alias with identical content; **hand out the versioned file** so stale copies are obvious). In JLCEDA Pro:
 
 1. Open **扩展 → 导入** (Extensions → Import).
 2. Select `dsh-eda-bridge-extension.zip`.

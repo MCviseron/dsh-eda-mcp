@@ -65,7 +65,7 @@ cd dsh-eda-mcp && pnpm install && dsh plugin --profile web add "link:$PWD"
 
 ### 2. 导入嘉立创EDA桥接扩展
 
-构建会生成 `dsh-eda-bridge-extension.zip`。在嘉立创EDA专业版中：
+构建会生成 `dsh-eda-bridge-extension-<版本号>.zip`（同时保留 `dsh-eda-bridge-extension.zip` 别名，内容相同；**分发请用带版本号的那个**，方便区分旧副本）。在嘉立创EDA专业版中：
 
 1. 打开 **扩展 → 导入**。
 2. 选择 `dsh-eda-bridge-extension.zip`。
