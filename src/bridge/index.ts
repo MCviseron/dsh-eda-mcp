@@ -1306,7 +1306,13 @@ async function executeTool(name, rawArgs, timeoutMs) {
     case 'eda_delete_project': {
       const resolvedProject = await resolveProjectUuid(args, timeoutMs)
       const deleted = await callExtension('dmt_Project.deleteProject', [resolvedProject.uuid], toolTimeout(args, timeoutMs))
-      return { deleted: deleted !== false, uuid: resolvedProject.uuid, matched: resolvedProject.matched }
+      const ok = deleted !== false
+      return {
+        deleted: ok,
+        uuid: resolvedProject.uuid,
+        matched: resolvedProject.matched,
+        hint: ok ? null : 'The app returned false and the project still exists: this build refuses deleteProject for local projects (verified with the project open and after switching away), so remove it in the app.',
+      }
     }
 
     case 'eda_modify_project': {

@@ -170,6 +170,19 @@
 - `eda_import_project` 现在**必填 `teamUuid`**（可选 `folderUuid` / `friendlyName`），组装成 `saveTo: { operation: 'New Project', newProjectOwnerTeamUuid, newProjectOwnerFolderUuid?, newProjectFriendlyName? }`；拿不到目标团队就直接报错说明原因，不再假报成功。
 - 扩展助手改为返回 `{ result }`，桥接据此判断**是否真的导入**（`imported` 不再恒为 true），并给出 `hint` 说明该构建忽略 saveTo。
 - **zip 包名带版本号**：构建产物为 `dsh-eda-bridge-extension-<版本>.zip`，同时保留 `dsh-eda-bridge-extension.zip` 作为同名别名（内容一致，脚本/下载路由/文档仍可用）；`.gitignore` 与 `package.json files` 同步。
+
+### 线协议 0.4.0 真机验证：**导入工程可用（= 变相新建）**，删除不可用
+
+| 调用 | 结果 |
+|---|---|
+| `eda_import_project({ path, teamUuid, friendlyName })` | ✅ **成功建出真工程**：返回 `{ itemType: "Project", uuid: e0f0fed1…, friendlyName: "DSH-IMPORT-TEST", teamUuid: cd421d68… }`，列表 7 → 8，4.7 s |
+| `eda_open_project({ name })` | ✅ 打开该新工程（当前工程 `DSH-IMPORT-TEST`，1 块板） |
+| `eda_delete_project({ name })` | ❌ 返回 `deleted: false`，工程仍在（**打开时**试过一次、**切到别的工程后**又试一次，都失败） |
+| `eda_create_project`（对照） | ❌ 依旧无效（此前四种参数组合都试过） |
+
+结论：该构建 **只能靠导入文件创建工程**（`createProject` 无用、`deleteProject` 无用）。工具返回值已如实反映（`imported` 不再恒为 true；删除失败会带 `hint` 说明该构建不支持并让用户在应用内删）。
+
+真机遗留：测试工程 `DSH-IMPORT-TEST` 留在工作区（API 删不掉），需在 EDA 里手动删除。
 ## 0.6.2
 
 > **已发布到 npm**（`dsh-eda-mcp@0.6.2`，首个版本）。下面 0.6.1 的内容从未发布过，同批一起带上。
