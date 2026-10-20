@@ -133,6 +133,28 @@
 - `eda_create_project` 在未给 `teamUuid` 时自动取 `dmt_Team.getCurrentTeamInfo()`；取不到就明确报错「请先在 EDA 登录嘉立创账号或用 eda_list_teams 取 teamUuid」，并回显 `teamUuidUsed` / `teamSource`。
 - 新增 `eda_get_workspace`（当前工作区 + 团队）、`eda_list_teams`、`eda_list_folders`（默认取当前团队）。
 - 白名单新增 `dmt_Team.*`、`dmt_Folder.*`、`dmt_Workspace.*` 六个读取方法。
+
+### 线协议 0.3.8 → 0.3.9：工程控制真机打通（本地半离线模式），修 `optional is not defined`
+
+**真机结论（扩展 0.3.8、EDA 3.2.186、登录但半离线）**：
+
+| 能力 | 结果 |
+|---|---|
+| `eda_get_workspace` | ✅ workspace = `Personal`，`getCurrentTeamInfo()` = null（半离线没有「当前团队」概念） |
+| `eda_list_teams` | ✅ 返回 **2 个「团队」，uuid 就是本地目录路径**：`D:\文档\LCEDA-Pro\projects`、`…\example-projects` |
+| `eda_list_projects()`（无过滤） | ✅ 自动**遍历所有团队聚合**：7 个工程（含 5 个示例工程），字段为 `friendlyName` / `teamUuid`（工程记录里的 teamUuid 是 `cd421d68…` 这种真 uuid，和目录路径不同） |
+| `eda_open_project({ name })` | ✅ **按工程名跨目录解析并打开成功**（打开「示例工程_快速入门」） |
+| `eda_get_project` | ✅ 返回工程详情 + 板卡（`波形变换电路`，sch/pcb uuid） |
+| `eda_open_document` + 读图 | ✅ 打开原理图页后 `eda_get_page_info`/`eda_get_components` 正常（读到 `P1`、器件 `DC1`） |
+| `eda_create_project` | ❌ **官方 API 在本机构建上不创建**：传目录路径、真 teamUuid、带/不带 folderUuid 四种组合都返回空 uuid，且列表里没有新工程、界面无对话框 —— 判定为该构建不支持（非插件 bug） |
+| `eda_export_project` | ❌ 首次调用报 **`optional is not defined`** → 我的扩展 bug（见下） |
+
+修掉的真 bug：
+
+- `jlc-extension/api-bridge.js` 里 `optional()` **只定义在 `dsh.internal.pcbCreateRegion` 内部**，新加的 `exportProjectFile` / `importProjectFile` 看不见它 → 提升为共享函数，并清掉 `optional2`/`optional3` 三处重复定义。
+- `summarizePrimitive` 把团队/工程/文件夹记录摘要成 **空对象** → 这些结构改为**原样返回**（字段名不稳定：`uuid`/`friendlyName`/`teamUuid`）。
+- `resolveProjectUuid` 与 `eda_list_projects` 在无过滤时只查一次 `getAllProjectsUuid()`（本地模式恒为空）→ 现在**遍历团队聚合**，按名字打开才能用。
+- `eda_list_folders` 传目录路径时应用抛裸 `TypeError: …rootList` → 包装成可读错误并提示该传什么。
 ## 0.6.2
 
 > **已发布到 npm**（`dsh-eda-mcp@0.6.2`，首个版本）。下面 0.6.1 的内容从未发布过，同批一起带上。

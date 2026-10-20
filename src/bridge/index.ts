@@ -17,7 +17,7 @@ import {
   assertNetName, checkNetName, checkTrackWidth, checkVia, classifyNet, milToMm, suggestTrackWidthMil,
 } from './design-rules.ts'
 
-const VERSION = '0.3.8'
+const VERSION = '0.3.9'
 const WS_PORT = Number(process.env.DSH_EDA_MCP_WS_PORT ?? 39009)
 const WS_HOST = '127.0.0.1'
 const ALLOW_RAW_API = (process.env.DSH_EDA_MCP_ALLOW_RAW_API ?? '1') !== '0'
@@ -1018,8 +1018,24 @@ async function resolveProjectUuid(args, timeoutMs) {
   if (direct !== '') return { uuid: direct, matched: null }
   const name = args.name === undefined ? '' : String(args.name).trim()
   if (name === '') throw new Error('provide uuid or name')
-  const uuids = await callExtension('dmt_Project.getAllProjectsUuid', [], toolTimeout(args, timeoutMs))
-  const candidates = Array.isArray(uuids) ? uuids.map(String) : []
+  const unfiltered = await callExtension('dmt_Project.getAllProjectsUuid', [], toolTimeout(args, timeoutMs))
+  const candidates = Array.isArray(unfiltered) ? unfiltered.map(String) : []
+  // Local directories are modelled as teams, so an unfiltered listing is empty;
+  // collect every team's projects before giving up on the name.
+  if (candidates.length === 0) {
+    const teams = await callExtension('dmt_Team.getAllTeamsInfo', [], toolTimeout(args, timeoutMs)).catch(() => [])
+    const seen = new Set()
+    for (const team of Array.isArray(teams) ? teams : []) {
+      const teamUuid = String(pickValue(asRecord(team), 'uuid', 'Uuid') ?? '')
+      if (teamUuid === '') continue
+      const owned = await callExtension('dmt_Project.getAllProjectsUuid', [teamUuid], toolTimeout(args, timeoutMs)).catch(() => [])
+      for (const uuid of Array.isArray(owned) ? owned.map(String) : []) {
+        if (seen.has(uuid)) continue
+        seen.add(uuid)
+        candidates.push(uuid)
+      }
+    }
+  }
   const resolved = []
   for (const candidate of candidates) {
     try {
@@ -1161,19 +1177,39 @@ async function executeTool(name, rawArgs, timeoutMs) {
       if (args.teamUuid !== undefined) filters.push(String(args.teamUuid))
       if (args.folderUuid !== undefined || args.workspaceUuid !== undefined) filters.push(args.folderUuid === undefined ? null : String(args.folderUuid))
       if (args.workspaceUuid !== undefined) filters.push(String(args.workspaceUuid))
-      const uuids = await callExtension('dmt_Project.getAllProjectsUuid', filters, toolTimeout(args, timeoutMs))
-      const list = Array.isArray(uuids) ? uuids.map(String) : []
-      if (args.resolveNames === false) return { count: list.length, uuids: list }
+      let uuids = await callExtension('dmt_Project.getAllProjectsUuid', filters, toolTimeout(args, timeoutMs))
+      let list = Array.isArray(uuids) ? uuids.map(String) : []
+      let aggregated = false
+      // In semi-offline mode the app models each local project directory as a
+      // "team", so an unfiltered call returns nothing; walk the teams instead.
+      if (list.length === 0 && filters.length === 0) {
+        const teams = await callExtension('dmt_Team.getAllTeamsInfo', [], toolTimeout(args, timeoutMs)).catch(() => [])
+        const seen = new Set()
+        for (const team of Array.isArray(teams) ? teams : []) {
+          const teamUuid = String(pickValue(asRecord(team), 'uuid', 'Uuid') ?? '')
+          if (teamUuid === '') continue
+          const owned = await callExtension('dmt_Project.getAllProjectsUuid', [teamUuid], toolTimeout(args, timeoutMs)).catch(() => [])
+          for (const uuid of Array.isArray(owned) ? owned.map(String) : []) {
+            if (seen.has(uuid)) continue
+            seen.add(uuid)
+            list.push(uuid)
+          }
+        }
+        aggregated = true
+      }
+      if (args.resolveNames === false) return { count: list.length, uuids: list, aggregated }
       const limit = Number.isFinite(Number(args.limit)) ? Math.max(1, Number(args.limit)) : list.length
       const projects = []
       for (const uuid of list.slice(0, limit)) {
         try {
-          projects.push(summarizePrimitive(await callExtension('dmt_Project.getProjectInfo', [uuid], timeoutMs)) ?? { uuid })
+          // Verbatim: project records carry unstable keys and summarising them
+          // produced empty objects.
+          projects.push(await callExtension('dmt_Project.getProjectInfo', [uuid], toolTimeout(args, timeoutMs)))
         } catch {
           projects.push({ uuid })
         }
       }
-      return { count: list.length, resolved: projects.length, projects }
+      return { count: list.length, resolved: projects.length, aggregated, projects }
     }
 
     case 'eda_get_project': {
@@ -1194,9 +1230,11 @@ async function executeTool(name, rawArgs, timeoutMs) {
     case 'eda_get_workspace': {
       const workspace = await callExtension('dmt_Workspace.getCurrentWorkspaceInfo', [], timeoutMs).catch(() => undefined)
       const team = await callExtension('dmt_Team.getCurrentTeamInfo', [], timeoutMs).catch(() => undefined)
+      // Team/workspace payloads are small and their field names are unstable, so
+      // they are returned verbatim: summarising them produced empty objects.
       return {
-        workspace: workspace === undefined ? null : summarizePrimitive(workspace),
-        team: team === undefined ? null : summarizePrimitive(team),
+        workspace: workspace === undefined ? null : workspace,
+        team: team === undefined ? null : team,
         hint: workspace === undefined && team === undefined
           ? 'No workspace/team is available: start JLCEDA Pro and sign in to a JLC account. Workspace projects cannot be created or listed without one.'
           : 'ok',
@@ -1206,7 +1244,7 @@ async function executeTool(name, rawArgs, timeoutMs) {
     case 'eda_list_teams': {
       const teams = await callExtension(args.involved === true ? 'dmt_Team.getAllInvolvedTeamInfo' : 'dmt_Team.getAllTeamsInfo', [], toolTimeout(args, timeoutMs))
       const list = Array.isArray(teams) ? teams : []
-      return { count: list.length, teams: list.map(item => summarizePrimitive(item) ?? item) }
+      return { count: list.length, teams: list }
     }
 
     case 'eda_list_folders': {
@@ -1217,13 +1255,22 @@ async function executeTool(name, rawArgs, timeoutMs) {
         resolvedTeam = String(pickValue(asRecord(current), 'Uuid', 'uuid') ?? '')
       }
       if (resolvedTeam === '') throw new Error('eda_list_folders needs teamUuid (eda_list_teams shows them)')
-      const uuids = await callExtension('dmt_Folder.getAllFoldersUuid', [resolvedTeam], toolTimeout(args, timeoutMs))
+      // The app throws a bare TypeError when the team is not a real uuid (the local
+      // directories reported by eda_list_teams are paths), so say what to pass.
+      let uuids
+      try {
+        uuids = await callExtension('dmt_Folder.getAllFoldersUuid', [resolvedTeam], toolTimeout(args, timeoutMs))
+      } catch (failure) {
+        throw new Error('eda_list_folders: the app rejected team "' + resolvedTeam + '" (' +
+          (failure instanceof Error ? failure.message : String(failure)) +
+          '); pass the uuid from a project record (eda_list_projects) or eda_list_teams')
+      }
       const list = Array.isArray(uuids) ? uuids.map(String) : []
       if (args.resolveNames === false) return { teamUuid: resolvedTeam, count: list.length, uuids: list }
       const folders = []
       for (const folderUuid of list.slice(0, 20)) {
         try {
-          folders.push({ folderUuid, info: summarizePrimitive(await callExtension('dmt_Folder.getFolderInfo', [resolvedTeam, folderUuid], timeoutMs)) })
+          folders.push({ folderUuid, info: await callExtension('dmt_Folder.getFolderInfo', [resolvedTeam, folderUuid], timeoutMs) })
         } catch {
           folders.push({ folderUuid, info: null })
         }

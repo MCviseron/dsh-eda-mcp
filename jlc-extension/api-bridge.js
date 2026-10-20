@@ -305,6 +305,11 @@ function dshEdaMcpStatus() {
     return btoa(parts.join(''));
   }
 
+  // JSON turns undefined array slots into null; the official API expects
+  // undefined (omitted) for optional parameters. One shared helper: the earlier
+  // per-helper copies were invisible to the project file helpers.
+  function optional(value) { return value === null ? undefined : value; }
+
   async function blobToDataUrl(blob) {
     var buffer = await blob.arrayBuffer();
     var bytes = new Uint8Array(buffer);
@@ -374,9 +379,6 @@ function dshEdaMcpStatus() {
       }
       var regionPolygon = eda.pcb_MathPolygon.createPolygon(regionArgs[1]);
       if (!regionPolygon) throw new Error('dsh.internal.pcbCreateRegion: invalid polygon source');
-      // JSON turns undefined array slots into null; the official API expects
-      // undefined (omitted) for optional parameters.
-      function optional(value) { return value === null ? undefined : value; }
       var region = await eda.pcb_PrimitiveRegion.create(
         optional(regionArgs[0]), regionPolygon, optional(regionArgs[2]), optional(regionArgs[3]),
         optional(regionArgs[4]), optional(regionArgs[5])
@@ -393,12 +395,11 @@ function dshEdaMcpStatus() {
       if (typeof eda === 'undefined' || !eda.pcb_MathPolygon || !eda.pcb_PrimitivePolyline) {
         throw new Error('dsh.internal.polylineCreate: PCB polyline APIs are not available');
       }
-      function optional2(value) { return value === null ? undefined : value; }
       var source = polyArgs[2];
       var polygon = eda.pcb_MathPolygon.createPolygon(source);
       if (!polygon) throw new Error('dsh.internal.polylineCreate: invalid polygon source ' + JSON.stringify(source));
       var polyline = await eda.pcb_PrimitivePolyline.create(
-        optional2(polyArgs[0]), optional2(polyArgs[1]), polygon, optional2(polyArgs[3]), optional2(polyArgs[4])
+        optional(polyArgs[0]), optional(polyArgs[1]), polygon, optional(polyArgs[3]), optional(polyArgs[4])
       );
       if (!polyline) {
         throw new Error('dsh.internal.polylineCreate: pcb_PrimitivePolyline.create returned undefined (net/layer/polygon rejected)');
@@ -413,12 +414,11 @@ function dshEdaMcpStatus() {
       if (typeof eda === 'undefined' || !eda.pcb_MathPolygon || !eda.pcb_PrimitivePour) {
         throw new Error('dsh.internal.pourCreate: PCB pour APIs are not available');
       }
-      function optional3(value) { return value === null ? undefined : value; }
       var pourPolygon = eda.pcb_MathPolygon.createPolygon(pourArgs[2]);
       if (!pourPolygon) throw new Error('dsh.internal.pourCreate: invalid polygon source ' + JSON.stringify(pourArgs[2]));
       var pour = await eda.pcb_PrimitivePour.create(
-        optional3(pourArgs[0]), optional3(pourArgs[1]), pourPolygon, optional3(pourArgs[3]), optional3(pourArgs[4]),
-        optional3(pourArgs[5]), optional3(pourArgs[6]), optional3(pourArgs[7]), optional3(pourArgs[8])
+        optional(pourArgs[0]), optional(pourArgs[1]), pourPolygon, optional(pourArgs[3]), optional(pourArgs[4]),
+        optional(pourArgs[5]), optional(pourArgs[6]), optional(pourArgs[7]), optional(pourArgs[8])
       );
       if (!pour) {
         throw new Error('dsh.internal.pourCreate: pcb_PrimitivePour.create returned undefined (net/layer/polygon rejected; copper layers only)');
