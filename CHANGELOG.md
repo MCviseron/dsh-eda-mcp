@@ -1,8 +1,16 @@
 # Changelog
 
-## 未发布（unreleased）
+## 1.1.3 — 2026-10-25
 
 ### DSH 版本巡检：`0.2.1-rc.3` 已验证（无新版本线，不改代码）
+
+### 巡检可一条命令跑完 + 定时任务的维护方式已记录
+
+- 新增 `scripts/version-sweep.mjs`（`pnpm version-sweep`）：一次读出 meta dist-tags、各接缝包的**实际最新发布**、本仓库声明的 tuple、README 已验证代际，并给出**唯一 VERDICT**（`new version line` / `same line, unverified` / `nothing to do`）。各接缝包自己的 `latest` 是占位 `0.0.1-rc.1`，脚本按发布时间取最新，避免据此误判。
+- `docs/dsh-version-sweep.md` 记录完整流程与**"两个坑"**：① 不能只看 `latest`；② 同三元组的新构建也必须跑 `seam-check`（`0.2.1-rc.2 → rc.3` 就是这样被漏掉的）。
+- 同一文档新增 *The scheduled task itself* 一节：定时任务存在 `%USERPROFILE%\.dsh\storages\schedule.json`，没有工具可调，用兄弟仓库的 `fix-schedule-autonomy.mjs`（幂等追加统一规则块 + 备份 + 原子写）维护，改完**必须重启 DSH**。
+- 定时任务 prompt 已按「技术流程 + 统一授权规则块」重写（授权自动化自行 bump/commit/push/tag/发布；对话中的限制不适用；唯一停下等人的情况是宿主 API 破坏性变更），并补上"待补发优先 / `commit -F` / 发布后核对 npm 与 CI"。
+
 
 - registry 事实：`@deepseek-ai/dsh` 的 `latest=0.2.1-rc.2`、`next=0.2.1-rc.3`、`alpha=0.2.1-alpha.5`；各接缝包（`dsh-mcp-client` / `host-webserver` / `settings` / `system-prompt` / `client-ui-*`）**自己的 `latest` tag 仍是占位的 `0.0.1-rc.1`**，实际最新发布为 `0.2.1-rc.3`——只信 `latest` 会漏掉。
 - 本机：桌面端 FileVersion `0.2.1-rc.2`（ProductVersion 0.2.1.0）、全局 CLI `0.1.5-rc.2`、仓库内已装接缝包 `0.1.5-rc.2`、`cordis` `4.0.2`（区间 `^4.0.1`，registry 最新 4.0.5 仍在区间内）。
