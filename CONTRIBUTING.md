@@ -88,6 +88,10 @@ plugin silently does nothing".
 ## Releases
 
 **Tags are created only on the maintainer's explicit request.** Commits and pushes
+
+The weekly DSH upgrade sweep (registry tags, seam check, the two manual contracts) is written
+down in [`docs/dsh-version-sweep.md`](docs/dsh-version-sweep.md) — follow it instead of judging by
+`latest` alone.
 to `main` are normal work and land as *unreleased* changes (own heading in
 `CHANGELOG.md`); creating a `v*` tag is a release decision and must be asked for
 first. A pushed `v*` tag also triggers the `publish` workflow, so tagging by
