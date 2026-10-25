@@ -1,5 +1,16 @@
 # Changelog
 
+## 未发布（unreleased）
+
+### DSH 版本巡检：`0.2.1-rc.3` 已验证（无新版本线，不改代码）
+
+- registry 事实：`@deepseek-ai/dsh` 的 `latest=0.2.1-rc.2`、`next=0.2.1-rc.3`、`alpha=0.2.1-alpha.5`；各接缝包（`dsh-mcp-client` / `host-webserver` / `settings` / `system-prompt` / `client-ui-*`）**自己的 `latest` tag 仍是占位的 `0.0.1-rc.1`**，实际最新发布为 `0.2.1-rc.3`——只信 `latest` 会漏掉。
+- 本机：桌面端 FileVersion `0.2.1-rc.2`（ProductVersion 0.2.1.0）、全局 CLI `0.1.5-rc.2`、仓库内已装接缝包 `0.1.5-rc.2`、`cordis` `4.0.2`（区间 `^4.0.1`，registry 最新 4.0.5 仍在区间内）。
+- `node scripts/seam-check.mjs 0.2.1-rc.3` → **ALL PASS**（mcp-client `inject:["tools"]` 与 9 个配置键、dsh-settings 的设置面孔、system-prompt 的 `section({name,order,text})`、host-webserver 的 exact/prefix 路由与 disposer、client-ui-slots/locale 加载）。
+- 人工核对（脚本覆盖不到的两处）：`dsh-tools@0.2.1-rc.3` 仍有 `super(ctx, "tools")`；`dsh-plugin-manager@0.2.1-rc.3` 仍读 `manifest.dsh?.bundle?.patch`（`operations.js:86`、`index.js:313`）。
+- 结论：`0.2.1-rc.3` 与已支持区间 `^0.2.1-rc.2` 同一三元组，**不需要新增版本线**、不改依赖；README 双语把 `0.2.1-rc.3` 记入"已验证的代际"。
+
+
 ## 1.1.2 — 2026-10-21
 
 ### 扩展包改为**从服务器下载**（发布包不再自带 zip）
