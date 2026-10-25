@@ -73,6 +73,7 @@
     "typecheck": "tsc --noEmit",
     "test": "node --experimental-strip-types test/node-runtime.test.ts && node --experimental-strip-types test/config-values.test.ts && node --experimental-strip-types test/design-rules.test.ts && node --experimental-strip-types test/seams.test.ts && node --experimental-strip-types test/eda-launch.test.ts && node --experimental-strip-types test/schematic-audit.test.ts && node --experimental-strip-types test/design-intake.test.ts && node --experimental-strip-types test/extension-package.test.ts && node --experimental-strip-types test/extension-routes.test.ts && node --experimental-strip-types test/netlist-erc.test.ts && node --experimental-strip-types test/skills.test.ts",
     "seam-check": "node scripts/seam-check.mjs",
+    "version-sweep": "node scripts/version-sweep.mjs",
     "contract-check": "node scripts/contract-check.mjs",
     "guard:bundle": "node scripts/guard-bundle-paths.mjs",
     "check": "pnpm typecheck && pnpm test && pnpm contract-check && pnpm build && pnpm guard:bundle",

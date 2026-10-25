@@ -2,6 +2,9 @@
 
 The scheduled reminder runs this sweep. Two traps cost a wrong report once — keep both in mind.
 
+Run `pnpm version-sweep` first — it prints the registry facts, the tuples this repo declares, and
+the exact next command. The sections below explain *why* the output says what it says.
+
 ## 1. Never trust `latest` alone
 
 - The meta package `@deepseek-ai/dsh` carries the real tags: `latest`, `next`, `alpha`.
