@@ -80,17 +80,38 @@ const candidates = [...new Set([tags.latest, tags.next, ...rows.map(row => row.n
 const unknownTuples = [...new Set(candidates.map(tuple).filter(line => !covered.has(line)))]
 const newest = rows.map(row => row.newest).filter(v => /^\d/.test(v)).sort().at(-1) ?? ''
 
+// "Covered by a range" is not the same as "verified": the READMEs list the generations this
+// repo actually probed, and a same-tuple build can be missing from that list.
+function verifiedGenerations() {
+  const text = readFileSync('README.md', 'utf8')
+  const marker = text.indexOf('Verified generations:')
+  if (marker < 0) return []
+  const line = text.slice(marker).split('\n').slice(0, 2).join(' ')
+  return [...new Set(line.match(/\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?/g) ?? [])]
+}
+
+const verified = verifiedGenerations()
+const newestVerified = verified.includes(newest)
 console.log('NEW TUPLES (need a dependency line): ' + (unknownTuples.length === 0 ? 'none' : unknownTuples.join(', ')))
-console.log('NEWEST PUBLISHED BUILD:            ' + newest + '  (tuple ' + tuple(newest) + ', ' + (covered.has(tuple(newest)) ? 'inside the supported range' : 'OUTSIDE the supported range') + ')')
+console.log('NEWEST PUBLISHED BUILD:            ' + newest + '  (tuple ' + tuple(newest) + ', ' +
+  (covered.has(tuple(newest)) ? 'inside the supported range' : 'OUTSIDE the supported range') + ')')
+console.log('VERIFIED GENERATIONS (README):     ' + (verified.length === 0 ? '(none parsed)' : verified.join(', ')))
 console.log('')
+
 if (unknownTuples.length > 0) {
-  console.log('Next: node scripts/seam-check.mjs ' + [...candidates].filter(v => !covered.has(tuple(v))).at(-1))
-  console.log('      if ALL PASS, add the new tuple to dependencies/peerDependencies (keep the old lines),')
-  console.log('      then typecheck + test + build, update CHANGELOG and the README verified list.')
+  const target = [...candidates].filter(v => !covered.has(tuple(v))).at(-1) ?? newest
+  console.log('VERDICT: new version line — probe it before touching dependencies.')
+  console.log('Next:   node scripts/seam-check.mjs ' + target)
+  console.log('        if ALL PASS: add the tuple to dependencies/peerDependencies (keep the old lines),')
+  console.log('        typecheck + test + build, then CHANGELOG + README verified list.')
+} else if (newestVerified) {
+  console.log('VERDICT: nothing to do — the newest published build is already verified in the READMEs.')
+  console.log('Next:   none (no code change, no dependency change).')
 } else {
-  console.log('Next: node scripts/seam-check.mjs ' + newest)
-  console.log('      a same-tuple build still needs the probe; if it PASSES and is not listed yet, add it to')
-  console.log('      the README verified generations and note the evidence in CHANGELOG (no dependency change).')
-  console.log('      Then unpack the two contract packages and confirm dsh-tools super(ctx,"tools") and')
-  console.log('      dsh-plugin-manager manifest.dsh?.bundle?.patch (see docs/dsh-version-sweep.md).')
+  console.log('VERDICT: same line, unverified build — this is the case that was wrongly reported as "nothing new".')
+  console.log('Next:   node scripts/seam-check.mjs ' + newest)
+  console.log('        ALL PASS -> no dependency change; add ' + newest + ' to the README verified list and')
+  console.log('        record the evidence in CHANGELOG. Then check the two manual contracts by unpacking')
+  console.log('        @deepseek-ai/dsh-tools@' + newest + ' and @deepseek-ai/dsh-plugin-manager@' + newest + '')
+  console.log('        (expected: super(ctx,"tools") and manifest.dsh?.bundle?.patch). See docs/dsh-version-sweep.md.')
 }
