@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.1.4 — 2026-11-01
+
+### DSH 巡检 2026-11-01：`0.2.1-rc.5` 已验证（同线新构建，不改依赖）
+
+- `pnpm version-sweep` 判定 **same line, unverified**：`latest`/`next` 都是 `0.2.1-rc.5`（发布于 2026-10-29），各接缝包自己的 `latest` 仍是占位 `0.0.1-rc.1`；`alpha=0.2.2-alpha.2` 属新三元组但仍是 alpha 通道，不在支持目标内（记一笔备查）。
+- `node scripts/seam-check.mjs 0.2.1-rc.5` → **ALL PASS**（mcp-client `inject:["tools"]` + 9 个配置键、dsh-settings 设置面孔、`section({name,order,text})`、host-webserver exact/prefix 与 disposer、client-ui-slots/locale）。
+- 人工契约（脚本不覆盖）：`dsh-tools@0.2.1-rc.5` 仍 `super(ctx, "tools")`；`dsh-plugin-manager@0.2.1-rc.5` 仍读 `manifest.dsh?.bundle?.patch`（`operations.js:86`、`index.js:313`）。
+- 结论：`0.2.1-rc.5` 与已支持区间 `^0.2.1-rc.2` 同一三元组 → **不加依赖线**；README 双语把 `0.2.1-rc.5` 记入已验证代际。
+
+
 ## 1.1.3 — 2026-10-25
 
 ### DSH 版本巡检：`0.2.1-rc.3` 已验证（无新版本线，不改代码）
