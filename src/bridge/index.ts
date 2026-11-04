@@ -300,7 +300,7 @@ const TOOLS = [
   { name: 'eda_draw_functional_box', description: 'Draw a dashed functional-group box around one group of components, with an optional label. Margins and coordinates are MCP units; default margin 1 unit (about 0.254 mm).', inputSchema: objectSchema({ componentIds: { type: 'array', items: { type: 'string' } }, label: { type: 'string' }, margin: { type: 'number' }, color: { type: 'string' }, lineWidth: { type: 'integer', minimum: 1, maximum: 10 }, lineType: { type: 'integer', enum: [0, 1, 2, 3] } }) },
   { name: 'eda_draw_circle', description: 'Draw a circle. Coordinates are MCP units.', inputSchema: objectSchema({ centerX: { type: 'number' }, centerY: { type: 'number' }, radius: { type: 'number' }, color: { type: 'string' }, fillColor: { type: 'string' }, lineWidth: { type: 'integer', minimum: 1, maximum: 10 }, lineType: { type: 'integer', enum: [0, 1, 2, 3] }, fillStyle: { type: 'string' } }, ['centerX', 'centerY', 'radius']) },
   { name: 'eda_draw_text', description: 'Draw text. Coordinates are MCP units.', inputSchema: objectSchema({ x: { type: 'number' }, y: { type: 'number' }, content: { type: 'string' }, rotation: { type: 'integer', enum: [0, 90, 180, 270] }, textColor: { type: 'string' }, fontName: { type: 'string' }, fontSize: { type: 'number' }, bold: { type: 'boolean' }, italic: { type: 'boolean' }, underLine: { type: 'boolean' }, alignMode: { type: 'integer', minimum: 1, maximum: 9 } }, ['x', 'y', 'content']) },
-  { name: 'eda_save_document', description: 'Save the active schematic document.', inputSchema: objectSchema({}) },
+  { name: 'eda_save_document', description: 'Save the active schematic document and verify the write. Throws when the app refuses to save (read-only or template project) instead of returning false, and on success returns { saved, verification: "file-changed" | "no-change-observed" | "unverified", file } so a caller can tell a real disk write from an in-memory edit.', inputSchema: objectSchema({}) },
   { name: 'eda_zoom_to_fit', description: 'Zoom to fit all primitives in the active document.', inputSchema: objectSchema({ tabId: { type: 'string' } }) },
   { name: 'eda_zoom_to_region', description: 'Zoom to a region. Schematic coordinates are MCP units.', inputSchema: objectSchema({ left: { type: 'number' }, right: { type: 'number' }, top: { type: 'number' }, bottom: { type: 'number' }, tabId: { type: 'string' } }, ['left', 'right', 'top', 'bottom']) },
   { name: 'eda_get_components', description: 'List components on the active schematic page (or all pages). Returns designator, value, x, y, rotation and bounding box when available.', inputSchema: objectSchema({ allSchematicPages: { type: 'boolean' }, includeBounds: { type: 'boolean' } }) },
@@ -612,6 +612,36 @@ async function callExtension(method, args, timeoutMs) {
 function asRecord(value) {
   if (value === null || typeof value !== 'object') return {}
   return value
+}
+
+// sch_Document.save returns a bare boolean: false means "nothing was written" with no
+// reason and no exception, and the app is happy to sit on a read-only template project
+// (Documents/LCEDA-Pro/example-projects) whose file is restored on the next open. So the
+// tool must treat false as a failure and, for true, verify the project file really changed.
+async function describeProjectFile(timeoutMs) {
+  try {
+    const info = asRecord(await callExtension('dmt_Project.getCurrentProjectInfo', [], Math.min(timeoutMs, 8e3)))
+    const dir = typeof info.teamUuid === 'string' ? info.teamUuid : ''
+    const friendly = typeof info.friendlyName === 'string' ? info.friendlyName : ''
+    if (dir === '' || friendly === '') return null
+    const file = join(dir, `${friendly}.eprj2`)
+    const template = /[\\/]example-projects([\\/]|$)/i.test(dir)
+    let stat = null
+    try {
+      stat = statSync(file)
+    } catch {
+      stat = null
+    }
+    return {
+      file,
+      template,
+      exists: stat !== null,
+      mtimeMs: stat === null ? null : stat.mtimeMs,
+      size: stat === null ? null : stat.size,
+    }
+  } catch {
+    return null
+  }
 }
 
 function flattenPoints(points) {
@@ -2203,8 +2233,44 @@ async function executeTool(name, rawArgs, timeoutMs) {
         args.alignMode === undefined ? undefined : Number(args.alignMode),
       ], timeoutMs)
 
-    case 'eda_save_document':
-      return await callExtension('sch_Document.save', [], timeoutMs)
+    case 'eda_save_document': {
+      const before = await describeProjectFile(timeoutMs)
+      const raw = await callExtension('sch_Document.save', [], timeoutMs)
+      const saved = raw === true || raw?.success === true
+      if (!saved) {
+        const where = before?.template === true
+          ? ' This project sits under example-projects and is a read-only template: the app restores it on every open, so edits cannot persist here. Export it (eda_export_project) and edit an imported copy instead.'
+          : ' The project may be read-only, or the document may belong to a template/online project.'
+        throw new Error(`eda_save_document failed: sch_Document.save returned ${JSON.stringify(raw ?? null)}, so the document was NOT written to disk.${where}`)
+      }
+      let verification = 'unverified'
+      let after = null
+      if (before?.exists === true) {
+        for (let attempt = 0; attempt < 8; attempt += 1) {
+          try {
+            const stat = statSync(before.file)
+            after = { mtimeMs: stat.mtimeMs, size: stat.size }
+          } catch {
+            after = null
+          }
+          if (after !== null && (after.mtimeMs !== before.mtimeMs || after.size !== before.size)) {
+            verification = 'file-changed'
+            break
+          }
+          await new Promise((resolve) => setTimeout(resolve, 200))
+        }
+        if (verification === 'unverified') verification = 'no-change-observed'
+      }
+      return {
+        saved: true,
+        verification,
+        file: before?.file ?? null,
+        ...(before?.exists === true ? { before: { mtimeMs: before.mtimeMs, size: before.size }, after } : {}),
+        ...(verification === 'no-change-observed'
+          ? { warning: `sch_Document.save returned true but ${String(before?.file ?? 'the project file')} did not change on disk: either the document had no pending edits, or the write never reached the disk.` }
+          : {}),
+      }
+    }
 
     case 'eda_zoom_to_fit': {
       // The API reported bounds outside the sheet (left:-340, bottom:-772.9 on A4),
