@@ -41,7 +41,7 @@ npm pack @deepseek-ai/dsh-tools@<v> @deepseek-ai/dsh-plugin-manager@<v>
 |---|---|
 | Newest published == a verified generation, contracts hold | one-line "nothing to do", no changes |
 | Same tuple, newer build, seams PASS | no dependency change; add the build to the READMEs' verified list and note the evidence in CHANGELOG |
-| **New tuple** (e.g. 0.2.2-rc.x, 0.3.x), seams PASS | add that line to `dependencies`/`peerDependencies` alongside the existing ones (never delete), note it in CHANGELOG/README, run typecheck + tests + build |
+| **New tuple** (e.g. 0.2.2-rc.x, 0.3.x), seams PASS | add that line to `dependencies`/`peerDependencies` alongside the existing ones (never delete), note it in CHANGELOG/README, run typecheck + tests + build, **and refresh `pnpm-lock.yaml`** (`pnpm install --lockfile-only`) — the CI workflows pin `--frozen-lockfile`, so widening a range without the lockfile fails every run at the "Install" step (this actually happened with v1.1.5) |
 | Any seam or contract FAIL | change no code; report the failing assertion, the package and version, plus a suggested fix and its risk |
 
 Boundaries: no `v*` tag and no npm publish (the maintainer decides releases), and the extension
