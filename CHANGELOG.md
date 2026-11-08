@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.1.5 — 2026-11-08
+
+### DSH 巡检 2026-11-08：新版本线 `0.2.2-rc.1` 已适配
+
+- `pnpm version-sweep` 判定 **new version line**：`latest`/`next` 都是 `0.2.2-rc.1`（2026-11-04 发布），落在旧区间之外；各接缝包自己的 `latest` 仍是占位 `0.0.1-rc.1`（脚本按发布时间取最新）。
+- `node scripts/seam-check.mjs 0.2.2-rc.1` → **ALL PASS**（`inject:["tools"]` + 9 个配置键、`dsh-settings` 设置面孔与 `default,SettingsForms` 入口、`section({name,order,text})`、`host-webserver` exact/prefix 与 disposer、`client-ui-slots`/`locale`）。
+- 人工契约：`dsh-tools@0.2.2-rc.1` 仍 `super(ctx, "tools")`；`dsh-plugin-manager@0.2.2-rc.1` 仍读 `manifest.dsh?.bundle?.patch`（`operations.js:87`、`index.js:401`）。
+- 适配内容：`dependencies`/`peerDependencies` 的 9 条 DSH 版本区间各追加 `|| ^0.2.2-rc.1`（旧线保留），README 双语记录该代际并写在运行时要求里。
+
+
 ## 1.1.4 — 2026-11-01
 
 ### DSH 巡检 2026-11-01：`0.2.1-rc.5` 已验证（同线新构建，不改依赖）

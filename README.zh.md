@@ -35,9 +35,9 @@ DSH 插件启动一个零第三方依赖的桥接子进程。桥接进程通过 
 
 ## 安装
 
-> 运行时要求：DSH `0.1.1-rc.x`、`0.1.5-rc.x`、`0.2.0-rc.x` 或 `0.2.1-rc.x`（Web GUI 与官方桌面端）。宿主端设置接缝与浏览器端依赖都已按各代适配，同一份构建在任意一代上都能加载。
+> 运行时要求：DSH `0.1.1-rc.x`、`0.1.5-rc.x`、`0.2.0-rc.x`、`0.2.1-rc.x` 或 `0.2.2-rc.x`（Web GUI 与官方桌面端）。宿主端设置接缝与浏览器端依赖都已按各代适配，同一份构建在任意一代上都能加载。
 >
-> 已验证的代际：`0.1.5-rc.2`（本仓库开发用）、`0.2.0-rc.2` / `0.2.1-rc.2`（桌面端运行时与 npm `next`），以及 **`0.2.1-rc.3` / `0.2.1-rc.5`**（巡检实测：`pnpm seam-check 0.2.1-rc.3` 与 `0.2.1-rc.5` 七个接缝全 PASS，另人工核对 `dsh-tools` 仍 `super(ctx, 'tools')`、`dsh-plugin-manager` 仍读 `manifest.dsh?.bundle?.patch`）。出现新版本线时跑 `pnpm seam-check next`
+> 已验证的代际：`0.1.5-rc.2`（本仓库开发用）、`0.2.0-rc.2` / `0.2.1-rc.2`（桌面端运行时与 npm `next`），以及 **`0.2.1-rc.3` / `0.2.1-rc.5` / `0.2.2-rc.1`**（巡检实测：`pnpm seam-check 0.2.1-rc.3` 与 `0.2.1-rc.5` 七个接缝全 PASS，另人工核对 `dsh-tools` 仍 `super(ctx, 'tools')`、`dsh-plugin-manager` 仍读 `manifest.dsh?.bundle?.patch`）。出现新版本线时跑 `pnpm seam-check next`
 
 ### 0. 从 npm 安装（推荐）
 
