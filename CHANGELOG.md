@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.1.7 — 2026-11-09
+
+### 回退 1.1.6 里"同一依赖同时声明为可选 peer"的做法（保持收紧后的范围）
+
+- 1.1.6 把 `dsh-mcp-client` / `dsh-settings` 同时写进 `dependencies` 与可选 `peerDependencies`，本意是让已有宿主副本的 profile 复用。实测在干净环境安装后 pnpm 认为 peer 已满足，**完全不安装**这两个运行时依赖（`node_modules/.pnpm` 里只剩 `schemastery`），插件会转而完全依赖 profile 恰好能解析到它们 —— 这是未经验证的行为变化，回退。
+- 保留 1.1.6 的真正修复：范围仍是 `^0.2.1-rc.5 || ^0.2.2-rc.1`（旧代际 rc.2/rc.3 无法满足，必须重新解析），`dsh-system-prompt` / `dsh-host-webserver` 仍不在 `dependencies` 中。
+- 验证：种子锁定 `0.2.1-rc.3` 后再装 1.1.7，lock 里不再出现 rc.2/rc.3 的官方包；干净安装时 `dsh-mcp-client` 正常解析到 `0.2.1-rc.5`。
+
+
 ## 1.1.6 — 2026-11-09
 
 ### 修复：profile 里的旧 lock 会把旧代际官方插件写回来，导致升级宿主后启动崩溃（issue #2）

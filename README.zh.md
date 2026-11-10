@@ -157,7 +157,7 @@ Remove-Item -Force "$env:USERPROFILE\.dsh\profiles\desktop\pnpm-lock.yaml"
 ```
 
 - 对话框里的「禁用第三方插件并重启」对这个故障**无效**：出问题的是被写进 profile 的官方依赖，不是插件本身。
-- 自 1.1.6 起，本插件的官方依赖范围收紧为 `^0.2.1-rc.5 || ^0.2.2-rc.1`，旧代际 lock（rc.2 / rc.3）不再满足声明，pnpm 必须重新解析；`dsh-system-prompt` / `dsh-host-webserver` 也从 `dependencies` 移除（运行时并不引用它们，纯类型依赖），进一步减少往 profile 塞官方包的机会。
+- 自 1.1.7 起，本插件的官方依赖范围收紧为 `^0.2.1-rc.5 || ^0.2.2-rc.1`，旧代际 lock（rc.2 / rc.3）不再满足声明，pnpm 必须重新解析；`dsh-system-prompt` / `dsh-host-webserver` 也从 `dependencies` 移除（运行时并不引用它们，纯类型依赖），进一步减少往 profile 塞官方包的机会。
 
 ### 4. 在嘉立创EDA里手动连接
 

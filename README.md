@@ -126,7 +126,7 @@ Remove-Item -Force "$env:USERPROFILE\.dsh\profiles\desktop\pnpm-lock.yaml"
 ```
 
 - The "disable third-party plugins and restart" button does **not** help here: the broken pieces are official dependencies written into the profile, not the plugin itself.
-- From 1.1.6 on, the declared official ranges are tightened to `^0.2.1-rc.5 || ^0.2.2-rc.1`, so an old lock (rc.2 / rc.3) no longer satisfies them and pnpm must re-resolve; `dsh-system-prompt` and `dsh-host-webserver` also left `dependencies` (they are type-only, never imported at runtime), which further reduces the chance of pulling official packages into the profile.
+- From 1.1.7 on, the declared official ranges are tightened to `^0.2.1-rc.5 || ^0.2.2-rc.1`, so an old lock (rc.2 / rc.3) no longer satisfies them and pnpm must re-resolve; `dsh-system-prompt` and `dsh-host-webserver` also left `dependencies` (they are type-only, never imported at runtime), which further reduces the chance of pulling official packages into the profile.
 
 ## Design rules
 
