@@ -1,6 +1,6 @@
 # Changelog
 
-## 未发布（unreleased）
+## 1.1.6 — 2026-11-09
 
 ### 修复：profile 里的旧 lock 会把旧代际官方插件写回来，导致升级宿主后启动崩溃（issue #2）
 
