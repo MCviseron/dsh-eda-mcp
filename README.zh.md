@@ -141,6 +141,24 @@ curl.exe -s -X POST http://127.0.0.1:19387/api/dsh-eda-mcp/self-test
 
 完整版（含排查顺序与版本纪律）见生成文档 `docs/schematic-workflow.md` 第 12 章，或会话内 `skill` 加载 `jlceda-schematic-workflow`。
 
+### 3c. 升级桌面端后安装本插件导致启动崩溃（profile 里的旧 lock）
+
+症状：安装完插件、重启桌面端后应用直接起不来，报
+`DesktopHostFatalError: dsh: startup failed: 1 required plugin did not activate`，并列出十几项卡在 `systemPrompt` / `tools` 上的插件。
+
+原因不在插件逻辑：`%USERPROFILE%\.dsh\profiles\desktop` 里残留了**上一个 DSH 代际的 `pnpm-lock.yaml`**（例如锁定全部 `@deepseek-ai/dsh-*` 为 `0.2.1-rc.3`），而桌面端本体已是 `0.2.1-rc.5`。pnpm 只要发现旧版本仍满足依赖范围就会"合法地"复用它们，于是一批旧代际官方插件被重新写进 profile —— 它们提供不了新版宿主需要的 `systemPrompt`/`tools` 服务，连锁导致 `agent-loop`（required）激活失败。
+
+处置（任选其一，之后重启桌面端）：
+
+```powershell
+# 清掉旧解析结果，让 pnpm 重新解析出与宿主同代际的官方包
+Remove-Item -Recurse -Force "$env:USERPROFILE\.dsh\profiles\desktop\node_modules"
+Remove-Item -Force "$env:USERPROFILE\.dsh\profiles\desktop\pnpm-lock.yaml"
+```
+
+- 对话框里的「禁用第三方插件并重启」对这个故障**无效**：出问题的是被写进 profile 的官方依赖，不是插件本身。
+- 自 1.1.6 起，本插件的官方依赖范围收紧为 `^0.2.1-rc.5 || ^0.2.2-rc.1`，旧代际 lock（rc.2 / rc.3）不再满足声明，pnpm 必须重新解析；`dsh-system-prompt` / `dsh-host-webserver` 也从 `dependencies` 移除（运行时并不引用它们，纯类型依赖），进一步减少往 profile 塞官方包的机会。
+
 ### 4. 在嘉立创EDA里手动连接
 
 DSH 桥接服务开着但 EDA 没有连上时，有三种入口：

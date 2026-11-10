@@ -111,6 +111,23 @@ The extension connects to `ws://127.0.0.1:39009/ws`. Keep JLCEDA Pro running and
 
 In the DSH Web GUI settings page, the **嘉立创EDA MCP** card has a **测试连接** button. It checks the local bridge health endpoint. The MCP tools appear as `mcp__jlceda__eda_status`, `mcp__jlceda__eda_place_component`, `mcp__jlceda__eda_draw_wire`, etc.
 
+### 3c. After upgrading the Desktop app, installing this plugin can crash startup (stale profile lock)
+
+Symptom: right after installing the plugin and restarting the Desktop app, startup dies with
+`DesktopHostFatalError: dsh: startup failed: 1 required plugin did not activate`, listing a dozen plugins stuck waiting on `systemPrompt` / `tools`.
+
+The plugin's own logic is not the cause: `%USERPROFILE%\.dsh\profiles\desktop` still holds a `pnpm-lock.yaml` from an **older DSH generation** (for example pinning every `@deepseek-ai/dsh-*` to `0.2.1-rc.3`) while the Desktop app is already `0.2.1-rc.5`. Because the older builds still satisfied the declared ranges, pnpm legitimately reused them and wrote a set of old-generation official plugins back into the profile; those cannot provide the `systemPrompt` / `tools` services the newer host expects, so `agent-loop` (required) fails to activate and startup aborts.
+
+Fix (either one, then restart the Desktop app):
+
+```powershell
+Remove-Item -Recurse -Force "$env:USERPROFILE\.dsh\profiles\desktop\node_modules"
+Remove-Item -Force "$env:USERPROFILE\.dsh\profiles\desktop\pnpm-lock.yaml"
+```
+
+- The "disable third-party plugins and restart" button does **not** help here: the broken pieces are official dependencies written into the profile, not the plugin itself.
+- From 1.1.6 on, the declared official ranges are tightened to `^0.2.1-rc.5 || ^0.2.2-rc.1`, so an old lock (rc.2 / rc.3) no longer satisfies them and pnpm must re-resolve; `dsh-system-prompt` and `dsh-host-webserver` also left `dependencies` (they are type-only, never imported at runtime), which further reduces the chance of pulling official packages into the profile.
+
 ## Design rules
 
 The normative schematic + PCB rule set (zoning, placement, net naming, track widths, vias, copper pour,

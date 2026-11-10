@@ -1,5 +1,16 @@
 # Changelog
 
+## 未发布（unreleased）
+
+### 修复：profile 里的旧 lock 会把旧代际官方插件写回来，导致升级宿主后启动崩溃（issue #2）
+
+- 根因：`dependencies` 里声明了 4 个 `@deepseek-ai/dsh-*` 且范围宽到 `^0.2.1-rc.2`。桌面端升到 `0.2.1-rc.5` 后，profile 里遗留的旧 `pnpm-lock.yaml`（锁定 `0.2.1-rc.3`）仍然满足范围，pnpm 于是复用旧包，旧代际插件提供不了新宿主的 `systemPrompt`/`tools` → `agent-loop` 激活失败 → `DesktopHostFatalError`。
+- 修复一：运行时依赖范围从 `^0.2.1-rc.2` 收紧为 `^0.2.1-rc.5 || ^0.2.2-rc.1` —— 旧代际（rc.2 / rc.3）不再满足声明，pnpm 必须重新解析；同时把 `dsh-mcp-client` / `dsh-settings` 另外声明为**可选 peer**，profile 已有宿主副本时直接复用。
+- 修复二：`dsh-system-prompt`、`dsh-host-webserver` 从 `dependencies` 移除 —— 实测 `lib/index.js` 运行时不引用它们（纯类型依赖），本来就不该由本包拉进 profile。
+- 验证：构造「先锁 `0.2.1-rc.3`，再装插件」的复现环境做 A/B —— 1.1.3 安装后仍是 `dsh-mcp-client@0.2.1-rc.3`（203 条 rc.2/rc.3 条目，复现 issue）；修复后解析为 rc.5/0.2.2 线（残留匹配仅为 peer 区间字符串，非已解析包）。
+- 文档：README 双语新增「升级桌面端后安装本插件导致启动崩溃」排查段，给出清 `node_modules` + `pnpm-lock.yaml` 的处置步骤。
+
+
 ## 1.1.5 — 2026-11-08
 
 ### DSH 巡检 2026-11-08：新版本线 `0.2.2-rc.1` 已适配
