@@ -28,6 +28,19 @@ check('Electron host finds the bundled desktop Node', resolveBridgeRuntime({
   env: {}, execPath: APP, versions: { electron: '38.0.0' }, exists: existsWith(APP, PAYLOAD_NODE),
 }), { command: PAYLOAD_NODE, extraEnv: {}, source: 'desktop runtime Node' })
 
+const HOME = 'C:\\Users\\tester'
+const USER_NODE = HOME + '\\.dsh\\dsh-runtimes\\dsh-primary-runtime\\dependencies\\node\\bin\\node.exe'
+
+check('per-user runtime copy is preferred over the installer payload', resolveBridgeRuntime({
+  env: {}, execPath: APP, versions: { electron: '38.0.0' }, home: HOME,
+  exists: existsWith(APP, PAYLOAD_NODE, USER_NODE),
+}), { command: USER_NODE, extraEnv: {}, source: 'per-user DSH runtime Node' })
+
+check('payload copy still used when the per-user runtime is absent', resolveBridgeRuntime({
+  env: {}, execPath: APP, versions: { electron: '38.0.0' }, home: HOME,
+  exists: existsWith(APP, PAYLOAD_NODE),
+}), { command: PAYLOAD_NODE, extraEnv: {}, source: 'desktop runtime Node' })
+
 check('explicit override wins', resolveBridgeRuntime({
   env: { DSH_EDA_MCP_NODE: PATH_NODE }, execPath: APP, versions: { electron: '38.0.0' }, exists: existsWith(APP, PAYLOAD_NODE, PATH_NODE),
 }), { command: PATH_NODE, extraEnv: {}, source: 'DSH_EDA_MCP_NODE override' })

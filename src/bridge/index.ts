@@ -3551,15 +3551,26 @@ rl.on('line', (line) => {
 })
 
 let shuttingDown = false
+/**
+ * Exit as soon as the host lets go of stdin.
+ *
+ * The desktop app allows the whole host shutdown 5 s and refuses to install an
+ * update unless the host reports a clean exit, so the bridge must never sit in a
+ * closing state: sockets are dialled closed best-effort and the process leaves on
+ * the next tick instead of waiting for a server-close callback that a live
+ * WebSocket can hold open forever.
+ */
 function shutdown() {
   if (shuttingDown) return
   shuttingDown = true
-  for (const client of clients) client.close()
+  try { for (const client of clients) client.close() } catch { /* best effort */ }
   clients.clear()
-  server.close(() => process.exit(0))
-  setTimeout(() => process.exit(0), 1000).unref()
+  try { server.close() } catch { /* the OS releases the port on exit */ }
+  process.exit(0)
 }
 
 process.stdin.on('end', shutdown)
+process.stdin.on('close', shutdown)
+process.on('disconnect', shutdown)
 process.on('SIGTERM', shutdown)
 process.on('SIGINT', shutdown)

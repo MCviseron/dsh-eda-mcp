@@ -21,7 +21,23 @@ export interface RuntimeProbe {
   versions?: { electron?: string }
   exists?: (path: string) => boolean
   pathDelimiter?: string
+  /** Home directory used to locate the per-user DSH runtime; defaults to the environment. */
+  home?: string
 }
+
+/**
+ * Node locations inside the per-user DSH runtime directory (`~/.dsh/dsh-runtimes`).
+ *
+ * This copy is the same payload as the one inside the application directory, but
+ * the installer never rewrites it. A bridge that keeps running on the
+ * application copy holds a lock on a file the updater must replace, and the
+ * desktop app then refuses the update ("update not installed") — so the user
+ * copy is probed first whenever it exists.
+ */
+const USER_NODE_CANDIDATES = [
+  ['dsh-runtimes', 'dsh-primary-runtime', 'dependencies', 'node', 'bin', 'node.exe'],
+  ['dsh-runtimes', 'dsh-primary-runtime', 'dependencies', 'node', 'bin', 'node'],
+] as const
 
 /** Bundled Node locations shipped inside the DSH desktop payload. */
 const DESKTOP_NODE_CANDIDATES = [
@@ -42,9 +58,11 @@ const PATH_NODE_NAMES = process.platform === 'win32' ? ['node.exe'] : ['node']
  * exact. Under the DSH desktop app the host process is Electron, where
  * `process.execPath` is `DeepSeek Harness.exe`: spawning it starts (or
  * single-instance-aborts) a second app instead of running the script, which is
- * why the bridge never listened. The desktop payload ships a real Node, so it
- * is probed first; the platform launcher variables and an explicit override come
- * before that, and Electron-as-Node (`ELECTRON_RUN_AS_NODE=1`) is the last resort.
+ * why the bridge never listened. The desktop payload ships a real Node, so it is
+ * used; the per-user runtime copy is preferred over the application copy because
+ * only the latter is part of the installer payload (see USER_NODE_CANDIDATES).
+ * The platform launcher variables and an explicit override come before both, and
+ * Electron-as-Node (`ELECTRON_RUN_AS_NODE=1`) is the last resort.
  */
 export function resolveBridgeRuntime(probe: RuntimeProbe = {}): BridgeRuntime {
   const env = probe.env ?? process.env
@@ -68,6 +86,14 @@ export function resolveBridgeRuntime(probe: RuntimeProbe = {}): BridgeRuntime {
 
   if (!isElectron) {
     return { command: execPath, extraEnv: {}, source: 'process.execPath (Node host)' }
+  }
+
+  const home = probe.home ?? env.DSH_HOME ?? env.USERPROFILE ?? env.HOME
+  if (home !== undefined && home !== '') {
+    for (const parts of USER_NODE_CANDIDATES) {
+      const candidate = join(home, '.dsh', ...parts)
+      if (exists(candidate)) return { command: candidate, extraEnv: {}, source: 'per-user DSH runtime Node' }
+    }
   }
 
   const root = dirname(execPath)

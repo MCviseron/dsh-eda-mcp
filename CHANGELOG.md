@@ -1,5 +1,14 @@
 # Changelog
 
+## 未发布（unreleased）
+
+### 修复：桥进程阻止桌面端安装更新
+
+- **桥进程改用用户目录的 Node**：`resolveBridgeRuntime` 原先只探安装目录（`resources/runtime/primary-runtime/dependencies/node/bin/node.exe`）。该文件属于安装包 payload，桥进程活着就锁住它，安装器无法替换 → 桌面端报「更新未安装」。新增候选 `~/.dsh/dsh-runtimes/dsh-primary-runtime/dependencies/node/bin/node[.exe]`（本机实测两份二进制 sha256 完全一致：`ba4e6d11…`，`node -v` 均为 v24.21.0），存在时优先于安装目录副本。
+- **桥进程立即退场**：`shutdown()` 原先 `server.close(() => process.exit(0))` + 1s 兜底，WebSocket 长连接可能让回调永不触发，把 Host 的 5 秒退场预算吃掉（Host 被强杀 → 不发 `shutdown-complete` → 桌面壳拒绝更新）。现在关闭 socket 后立刻 `process.exit(0)`，并额外监听 stdin `close` 与进程 `disconnect`。实测 stdin 关闭到进程退出 **8.2 ms**。
+- 测试：`node-runtime` 用例新增「用户目录副本优先」「用户目录缺失时回落 payload」两条，9 条断言全 PASS。
+
+
 ## 1.1.8 — 2026-11-15
 
 ### DSH 巡检 2026-11-15：`0.2.2-rc.3` 已验证（同线新构建，不改依赖）
