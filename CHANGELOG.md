@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.1.8 — 2026-11-15
+
+### DSH 巡检 2026-11-15：`0.2.2-rc.3` 已验证（同线新构建，不改依赖）
+
+- `pnpm version-sweep` 判定 **same line, unverified**：`next=0.2.2-rc.3`（2026-11-13 发布；`latest` 仍是 `0.2.2-rc.1`），落在已声明的 `^0.2.2-rc.1` 区间内；各接缝包自己的 `latest` 仍是占位 `0.0.1-rc.1`。
+- `node scripts/seam-check.mjs 0.2.2-rc.3` → **ALL PASS**（`inject:["tools"]` + 9 个配置键、`dsh-settings` 设置面孔与 `default,SettingsForms` 入口、`section({name,order,text})`、`host-webserver` exact/prefix 与 disposer、`client-ui-slots`/`locale`/`client-ui-settings`）。
+- 人工契约：`dsh-tools@0.2.2-rc.3` 仍 `super(ctx, "tools")`（`lib/index.js:417`）；`dsh-plugin-manager@0.2.2-rc.3` 仍读 `manifest.dsh?.bundle?.patch`（`lib/index.js:432`、`lib/types/operations.js:87`）。
+- 结论：同三元组 → **不加依赖线**，README 双语把 `0.2.2-rc.3` 记入已验证代际。
+
+
 ## 1.1.7 — 2026-11-09
 
 ### 回退 1.1.6 里"同一依赖同时声明为可选 peer"的做法（保持收紧后的范围）
