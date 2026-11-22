@@ -9,6 +9,18 @@
 - 测试：`node-runtime` 用例新增「用户目录副本优先」「用户目录缺失时回落 payload」两条，9 条断言全 PASS。
 
 
+## 1.1.9 — 2026-11-22
+
+### DSH 巡检 2026-11-22：新版本线 `0.2.3-alpha.1` 已适配（alpha 通道）+ 两处巡检工具缺陷修复
+
+- `pnpm version-sweep` 判定 **new version line**：`0.2.3-alpha.1`（2026-11-22 发布，`alpha` 通道；`latest`/`next` 仍是 `0.2.2-rc.5`），落在旧区间之外。
+- `node scripts/seam-check.mjs 0.2.3-alpha.1` → **ALL PASS**（`inject:["tools"]` + 9 个配置键、`dsh-settings` 设置面孔与 `default,SettingsForms`、`section({name,order,text})`、`host-webserver` exact/prefix 与 disposer、`client-ui-slots`/`locale`/`client-ui-settings`）。
+- 人工契约：`dsh-tools@0.2.3-alpha.1` 仍 `super(ctx, "tools")`（`lib/index.js:417`）；`dsh-plugin-manager@0.2.3-alpha.1` 仍读 `manifest.dsh?.bundle?.patch`（`lib/index.js:433`、`lib/types/operations.js:87`）。
+- 适配：9 条 DSH 区间各追加 `|| ^0.2.3-alpha.1`（旧线保留），README 双语记录该代际。
+- **工具修复一**：`test/seams.test.ts` 过去在 seam 包缺失时打印 `SKIP` 仍报 `ALL PASS` —— 一次只装了一半的安装会被读成"全部通过"。现在缺失即 **FAIL** 并计入失败数（实测空目录从 "SKIP + ALL PASS" 变为 `4 FAILED`）。
+- **工具修复二**：`scripts/seam-check.mjs` 在安装失败且错误为 `notarget/ERESOLVE` 时，会打印实际使用的 registry 并给出用官方源重试的命令 —— 本次巡检就是这个坑：本机 npm 默认源是 npmmirror，而它当时还没同步 `0.2.3-alpha.1`，报错形态与"不兼容"一致。
+
+
 ## 1.1.8 — 2026-11-15
 
 ### DSH 巡检 2026-11-15：`0.2.2-rc.3` 已验证（同线新构建，不改依赖）

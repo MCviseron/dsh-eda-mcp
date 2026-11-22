@@ -69,7 +69,11 @@ const loaded = new Map<string, { version: string; module: Record<string, unknown
 for (const name of PACKAGES) {
   const result = await load(name)
   if (result === undefined) {
-    console.log(`SKIP ${name} — not installed under ${seamRoot}`)
+    // A missing package is a failed probe, never a pass: an install that only
+    // half-succeeded used to print SKIP lines and then "ALL PASS", which would
+    // let an unverified version line be adopted.
+    failures += 1
+    console.log(`FAIL ${name} — not installed under ${seamRoot}; the install did not deliver this seam package`)
     continue
   }
   loaded.set(name, result)

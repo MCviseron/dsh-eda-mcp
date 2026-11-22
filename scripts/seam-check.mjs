@@ -71,7 +71,18 @@ try {
   })
   console.log(`\nseam-check: ${version} is compatible with every seam this plugin probes`)
 } catch (error) {
-  console.error(`\nseam-check: ${version} FAILED — ${error instanceof Error ? error.message : String(error)}`)
+  const message = error instanceof Error ? error.message : String(error)
+  console.error(`\nseam-check: ${version} FAILED — ${message}`)
+  // A mirror that has not synced the version yet reports "notarget" and looks
+  // exactly like an incompatibility, so name the registry that answered.
+  if (/notarget|ERESOLVE|ETARGET/i.test(message)) {
+    let registry = '(unknown)'
+    try {
+      registry = execFileSync('npm', ['config', 'get', 'registry'], { encoding: 'utf8' }).trim()
+    } catch { /* keep the placeholder */ }
+    console.error(`seam-check: the install ran against ${registry}. If this is a mirror that has not synced ${version} yet, retry with`)
+    console.error(`  npm_config_registry=https://registry.npmjs.org/ node scripts/seam-check.mjs ${version}`)
+  }
   process.exitCode = 1
 } finally {
   rmSync(workDir, { recursive: true, force: true })
