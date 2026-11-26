@@ -1,8 +1,8 @@
 import { build } from 'esbuild'
-import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
+import { buildZip } from './scripts/zip.mjs'
 import { tmpdir } from 'node:os'
-import { cp, mkdir, readdir, readFile, rm, utimes, writeFile } from 'node:fs/promises'
+import { cp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 const sharedExternal = [
@@ -125,20 +125,6 @@ if (!bridgeSource.includes(versionPlaceholder)) {
 }
 await writeFile(stagedBridge, bridgeSource.split(versionPlaceholder).join(extensionVersion), 'utf8')
 
-// Reproducible zip: Compress-Archive stores each entry's mtime, so two builds of the
-// same sources produced different bytes (measured: same 9827 bytes, different sha256),
-// which made "is the served copy the one this plugin ships?" unanswerable. Pin every
-// staged mtime so the archive is a pure function of the sources.
-const pinnedTime = new Date('2020-01-01T00:00:00Z')
-const pinTimes = async (dir) => {
-  for (const entry of await readdir(dir, { withFileTypes: true })) {
-    const path = join(dir, entry.name)
-    if (entry.isDirectory()) await pinTimes(path)
-    await utimes(path, pinnedTime, pinnedTime)
-  }
-}
-await pinTimes(stage)
-
 // One artefact, versioned name: two copies with identical bytes only confuse
 // whoever has to pick one. Everything that needs the file resolves it by version.
 const zipVersioned = 'dsh-eda-bridge-extension-' + extensionVersion + '.zip'
@@ -148,11 +134,12 @@ const zipVersioned = 'dsh-eda-bridge-extension-' + extensionVersion + '.zip'
 for (const entry of await readdir('.')) {
   if (/^dsh-eda-bridge-extension.*\.zip$/.test(entry)) await rm(entry, { force: true })
 }
-execFileSync('powershell', [
-  '-NoProfile',
-  '-Command',
-  `Compress-Archive -Path '${join(stage, '*')}' -DestinationPath '${join(process.cwd(), zipVersioned)}' -Force`,
-], { stdio: 'inherit' })
+// Deterministic archive: Compress-Archive wrote each entry's mtime as a local-time DOS
+// timestamp, so the same sources produced a different sha256 at UTC+8 than on a UTC CI
+// runner (same 9827 bytes) - and the digest a release shipped then disagreed with the
+// artefact on the download server. scripts/zip.mjs stores entries in sorted order with a
+// fixed timestamp, so the bytes are a pure function of the names and contents.
+await writeFile(zipVersioned, await buildZip(stage))
 await rm(stage, { recursive: true, force: true })
 
 // The package no longer ships the zip: the settings card downloads it from the download server.
@@ -161,6 +148,26 @@ await rm(stage, { recursive: true, force: true })
 // is refused instead of silently handing out a different wire version.
 const zipBytes = await readFile(zipVersioned)
 const zipSha256 = createHash('sha256').update(zipBytes).digest('hex')
+
+// The digest this build ships must equal the artefact that was uploaded to the download
+// server, so the expected value is pinned in the repository. A release once carried a
+// digest produced by the CI runner while the server served the artefact built on the
+// author's machine (same 9827 bytes, different sha256), and every download failed
+// verification. Any environment dependence now breaks the build instead of the users.
+const expectedDigestPath = join('scripts', 'extension-digest.expected.json')
+try {
+  const expected = JSON.parse(await readFile(expectedDigestPath, 'utf8'))
+  if (expected.sha256 !== zipSha256 || expected.bytes !== zipBytes.byteLength) {
+    throw new Error(
+      'extension zip digest drift: built ' + zipSha256 + ' (' + zipBytes.byteLength + ' bytes) but ' +
+      expectedDigestPath + ' pins ' + expected.sha256 + ' (' + expected.bytes + ' bytes). ' +
+      'The archive is not deterministic across environments, or the artefact was changed without re-uploading it.',
+    )
+  }
+} catch (error) {
+  if (error instanceof Error && error.message.startsWith('extension zip digest drift')) throw error
+  if (error instanceof Error && error.code !== 'ENOENT') throw error
+}
 await mkdir('lib', { recursive: true })
 await writeFile(join('lib', 'extension-digest.json'), JSON.stringify({
   version: extensionVersion,

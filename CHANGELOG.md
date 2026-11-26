@@ -9,6 +9,16 @@
 - 测试：`node-runtime` 用例新增「用户目录副本优先」「用户目录缺失时回落 payload」两条，9 条断言全 PASS。
 
 
+## 未发布（unreleased）
+
+### 修复：扩展 zip 的 sha256 校验一直失败（issue #4）
+
+- 根因：`build.mjs` 用 PowerShell `Compress-Archive` 打包，它把每个条目的 mtime 写成**本地时区的 DOS 时间戳**。本机（UTC+8）与 CI（UTC）因此对同一份源码产出**同大小、不同字节**的 zip（9827 B：本地 `827e9ad9…`、CI `518fef20…`），而服务器上发的是我本机构建的那个文件 —— 于是 **1.1.3 起每个发布版**内嵌的 digest 都与用户下载到的文件不符。此前我的本地校验（`eda_extension_package`）只是"自证"：本地 digest 恰好等于本地构建的 zip，从未与发布包比对。
+- 修复一：新增 `scripts/zip.mjs`（store 存储、条目名排序、固定 DOS 时间 1980-01-01、自算 CRC32），`build.mjs` 改用它打包。实测三次构建（含 `TZ=UTC`）字节完全一致：`dc994bd1…`。代价是产物从 9.8 KB 变为 37 KB（不压缩换取跨环境确定性）。
+- 修复二：新增 `scripts/extension-digest.expected.json` 并在 `build.mjs` 里校验；构建产出的 digest 与钉死值不符即**构建失败**，而不是让用户拿到对不上的指纹。
+- 校验：Python `zipfile` 确认 CRC 全对、2 个条目、与 `jlc-extension/` 源码仅差两处 `__EXTENSION_VERSION__` 版本替换；已上传到下载服务器 `/var/www/eda-download/`，HTTP 拉取 sha256 = `dc994bd1…`（37044 B）。
+
+
 ## 1.1.9 — 2026-11-22
 
 ### DSH 巡检 2026-11-22：新版本线 `0.2.3-alpha.1` 已适配（alpha 通道）+ 两处巡检工具缺陷修复

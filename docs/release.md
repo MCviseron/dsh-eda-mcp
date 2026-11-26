@@ -192,3 +192,24 @@ git tag -a v<版本> -m "..." && git push origin v<版本> # 首次发布建议�
 ```
 
 首次手动发布完成、配置好 trusted publisher 之后，才把 tag 交给 CI。
+
+## Extension zip: verify the *published* bytes, not the local ones
+
+The extension zip is built by `pnpm build` and served from the download server, and the package
+ships only its digest (`lib/extension-digest.json`). A digest is worth nothing unless it describes
+the file users actually download, so every release has to close that loop:
+
+1. `pnpm build` — the build now fails when the zip digest differs from
+   `scripts/extension-digest.expected.json`. If it does differ on purpose (a real extension change),
+   upload the new file first, then re-pin the expected digest.
+2. `sha256sum` the file on the server (`/var/www/eda-download/<zip>`) and compare it with the
+   freshly built zip. They must be identical.
+3. **After publishing**, pull the released tarball and read its manifest back:
+
+   ```bash
+   npm pack dsh-eda-mcp@<version> --silent && tar -xzOf dsh-eda-mcp-<version>.tgz package/lib/extension-digest.json
+   ```
+
+   Its `sha256` must equal the value from step 2. A local `eda_extension_package` run cannot catch a
+   mismatch here: it compares the local digest with the local zip, which agree even when the release
+   ships a different pair (that is exactly how releases 1.1.3–1.1.9 shipped an unusable digest).
